@@ -1,12 +1,20 @@
 // src/components/profile/ProfileHome.jsx
 import React, { useEffect, useState } from "react";
-import { Users, Shield, Bell, Info, FolderOpen, Cake } from "lucide-react";
+import {
+  Users,
+  Shield,
+  Bell,
+  Info,
+  FolderOpen,
+  Cake,
+  LogOut,
+} from "lucide-react";
 import ProfileSection from "./ProfileSection";
 import { StorageService } from "../../lib/storage";
 import { GROUPS } from "../../lib/constants";
 import { getTodayBirthdaysForUser } from "../../lib/notificationTriggers";
 
-export default function ProfileHome({ user, onNavigate }) {
+export default function ProfileHome({ user, onNavigate, onLogout }) {
   const isAdmin = user.role === "admin";
   const isTeam = user.role === "team";
   const isParent = user.role === "parent";
@@ -46,7 +54,7 @@ export default function ProfileHome({ user, onNavigate }) {
         />
       )}
 
-      {/* Team: nur Stammgruppe */}
+      {/* Team: Stammgruppe */}
       {isTeam && (
         <ProfileSection
           icon={<Users size={20} />}
@@ -67,6 +75,13 @@ export default function ProfileHome({ user, onNavigate }) {
         icon={<Info size={20} />}
         title="Einrichtungsinfo & Kontakt"
         onClick={() => onNavigate("facility")}
+      />
+
+      {/* Sicherheit */}
+      <ProfileSection
+        icon={<Shield size={20} />}
+        title="Sicherheit"
+        onClick={() => onNavigate("security")}
       />
 
       {/* Admin-Funktionen → echten Admin-Tab öffnen */}
@@ -117,6 +132,17 @@ export default function ProfileHome({ user, onNavigate }) {
             })}
           </ul>
         </div>
+      )}
+
+      {/* Logout-Button */}
+      {onLogout && (
+        <button
+          onClick={onLogout}
+          className="w-full bg-red-500 text-white font-bold py-3 rounded-xl hover:bg-red-600 flex items-center justify-center gap-2 shadow"
+        >
+          <LogOut size={18} />
+          Abmelden
+        </button>
       )}
     </div>
   );

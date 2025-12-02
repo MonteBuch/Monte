@@ -24,11 +24,11 @@ import ProfileHome from "./components/profile/ProfileHome";
 import ProfileChildren from "./components/profile/ProfileChildren";
 import ProfileNotifications from "./components/profile/ProfileNotifications";
 import ProfileFacility from "./components/profile/ProfileFacility";
-// ProfileSecurity könntest du später noch anbinden
-// import ProfileSecurity from "./components/profile/ProfileSecurity";
+import ProfileSecurity from "./components/profile/ProfileSecurity";
 
 import AdminArea from "./components/admin/AdminArea";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { StorageService } from "./lib/storage";
 
 // --------------------------------------------------
 // Hilfs-Komponenten: Header & Footer
@@ -44,7 +44,7 @@ const AppHeader = ({ user }) => {
   if (user.role === "admin") roleLabel = "Leitung";
 
   return (
-    <header className="bg-white border-b border-stone-200">
+    <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-stone-200">
       <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           {/* kleines „Montessori“-Logo: 4 stilisierte Figuren */}
@@ -96,7 +96,7 @@ const NavButton = ({ icon, label, active, onClick }) => (
 
 const AppFooter = ({ activeTab, setActiveTab, isAdmin }) => {
   return (
-    <footer className="bg-white border-t border-stone-200">
+    <footer className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-stone-200">
       <div className="max-w-4xl mx-auto px-2">
         <div className="flex justify-between">
           <NavButton
@@ -154,7 +154,7 @@ export default function App() {
   const [pendingResetUser, setPendingResetUser] = useState(null);
   const [activeTab, setActiveTab] = useState("news");
 
-  // Unteransicht im Profil-Tab: home | children | notifications | facility
+  // Unteransicht im Profil-Tab: home | children | notifications | facility | security
   const [profileView, setProfileView] = useState("home");
 
   // Session beim Start wiederherstellen
@@ -224,13 +224,19 @@ export default function App() {
   };
 
   const handleUserUpdate = (updatedUser) => {
-    // Änderung von Kindern / Stammgruppe / Benachrichtigungen etc.
     setUser(updatedUser);
     try {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(updatedUser));
     } catch (e) {
       console.error("Session save failed", e);
     }
+  };
+
+  // Konto löschen: Benutzer aus Storage entfernen und abmelden
+  const handleDeleteAccount = () => {
+    if (!user) return;
+    StorageService.delete("users", user.id);
+    handleLogout();
   };
 
   // ------------------------------------------
@@ -262,8 +268,9 @@ export default function App() {
         return (
           <ProfileChildren
             user={user}
+            isTeam={user.role === "team"}
             onBack={() => setProfileView("home")}
-            onUserUpdate={handleUserUpdate}
+            onUpdateUser={handleUserUpdate}
           />
         );
       case "notifications":
@@ -271,13 +278,22 @@ export default function App() {
           <ProfileNotifications
             user={user}
             onBack={() => setProfileView("home")}
-            onUserUpdate={handleUserUpdate}
           />
         );
       case "facility":
         return (
           <ProfileFacility
+            user={user}
             onBack={() => setProfileView("home")}
+          />
+        );
+      case "security":
+        return (
+          <ProfileSecurity
+            user={user}
+            onBack={() => setProfileView("home")}
+            onUpdateUser={handleUserUpdate}
+            onDeleteAccount={handleDeleteAccount}
           />
         );
       default:
@@ -302,8 +318,12 @@ export default function App() {
   } else if (activeTab === "group") {
     mainContent = <GroupArea user={user} />;
   } else if (activeTab === "food") {
-    // FoodPlan entscheidet intern anhand der Rolle, was möglich ist
-    mainContent = <FoodPlan user={user} />;
+    // Team- und Admin-Nutzer dürfen den Speiseplan bearbeiten.
+    mainContent = (
+      <FoodPlan
+        isAdmin={user.role === "admin" || user.role === "team"}
+      />
+    );
   } else if (activeTab === "absence") {
     if (user.role === "team") {
       mainContent = <AbsenceTeamWrapper user={user} />;
@@ -317,7 +337,9 @@ export default function App() {
   } else if (activeTab === "admin" && isAdmin) {
     mainContent = <AdminArea user={user} />;
   } else {
-    mainContent = <div className="p-4 text-sm text-stone-500">Unbekannter Tab.</div>;
+    mainContent = (
+      <div className="p-4 text-sm text-stone-500">Unbekannter Tab.</div>
+    );
   }
 
   // ------------------------------------------
@@ -328,7 +350,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#fcfaf7]">
       <AppHeader user={user} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto pt-20 pb-20">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <ErrorBoundary>{mainContent}</ErrorBoundary>
         </div>

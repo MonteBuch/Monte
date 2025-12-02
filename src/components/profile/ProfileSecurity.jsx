@@ -1,7 +1,12 @@
 // src/components/profile/ProfileSecurity.jsx
 import React, { useState } from "react";
-import { ArrowLeft, Save, Fingerprint } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Fingerprint,
+} from "lucide-react";
 import { StorageService } from "../../lib/storage";
+import ProfileDeleteConfirm from "./ProfileDeleteConfirm"; // Bestätigungsdialog einbinden
 
 export default function ProfileSecurity({
   user,
@@ -18,6 +23,9 @@ export default function ProfileSecurity({
   const [biometric, setBiometric] = useState(
     localStorage.getItem(biomKey) === "1"
   );
+
+  // Zustand für Bestätigungsdialog
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const toggleBiometric = () => {
     const newVal = !biometric;
@@ -136,13 +144,24 @@ export default function ProfileSecurity({
         </button>
       </form>
 
-      {/* DELETE */}
+      {/* DELETE: zeigt nun einen Bestätigungsdialog */}
       <button
-        onClick={onDeleteAccount}
+        onClick={() => setConfirmDelete(true)}
         className="w-full bg-red-500 text-white rounded-xl py-3 font-bold hover:bg-red-600 active:scale-[0.99]"
       >
         Profil löschen
       </button>
+
+      {confirmDelete && (
+        <ProfileDeleteConfirm
+          user={user}
+          onCancel={() => setConfirmDelete(false)}
+          onDelete={() => {
+            setConfirmDelete(false);
+            onDeleteAccount();
+          }}
+        />
+      )}
     </div>
   );
 }

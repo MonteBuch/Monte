@@ -102,6 +102,9 @@ export default function AbsenceEditor({
 
   const group = GROUPS.find((g) => g.id === child.group);
 
+  // Mindestdatum für das Enddatum: nicht vor heute und nicht vor dem Startdatum
+  const minDateTo = dateFrom && dateFrom > todayIso ? dateFrom : todayIso;
+
   return (
     <div className="bg-white p-4 rounded-2xl shadow-sm border border-stone-200 space-y-5">
       {/* Kopf */}
@@ -159,7 +162,7 @@ export default function AbsenceEditor({
             <input
               type="date"
               value={dateFrom}
-              min={todayIso}        // <= hier wird Vergangenheit blockiert
+              min={todayIso}
               onChange={(e) => setDateFrom(e.target.value)}
               className="p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
             />
@@ -171,6 +174,7 @@ export default function AbsenceEditor({
               <input
                 type="date"
                 value={dateFrom}
+                min={todayIso}
                 onChange={(e) => setDateFrom(e.target.value)}
                 className="p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
               />
@@ -180,7 +184,7 @@ export default function AbsenceEditor({
               <input
                 type="date"
                 value={dateTo}
-                min={todayIso}      // <= Enddatum darf nicht Vergangenheit sein
+                min={minDateTo}
                 onChange={(e) => setDateTo(e.target.value)}
                 className="p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
               />
