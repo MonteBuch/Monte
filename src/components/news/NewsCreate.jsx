@@ -1,20 +1,48 @@
 // src/components/news/NewsCreate.jsx
 import React, { useMemo, useState } from "react";
-import { Send, Megaphone } from "lucide-react";
+import {
+  Send,
+  Megaphone,
+  Globe,
+  Droplets,
+  Flame,
+  Sun,
+  Flower2,
+  Wind,
+  Cloud,
+  Leaf,
+  TreePine,
+  Mountain,
+  Snowflake,
+  MoonStar,
+  Palette,
+  Brush,
+  Blocks,
+  Puzzle,
+  Music4,
+  Baby,
+  Smile,
+  UsersRound,
+  BookOpen,
+  Star,
+  Clover,
+} from "lucide-react";
 import { StorageService } from "../../lib/storage";
 
 /**
  * NewsCreate – Eingabeformular für neue Mitteilungen.
- * - Enthält einen farbigen Header mit Gruppenauswahl.
- * - Der Senden‑Button zeigt dynamisch den Namen der aktuellen Zielgruppe an.
+ * • Farbiger Header mit Gruppenauswahl
+ * • Dynamischer Button-Text („Mitteilung an … senden“)
+ * • Korrekte Icons und Gruppennamen
  */
 export default function NewsCreate({ user, groups, onSubmit }) {
+  // Facility‑Gruppen laden (falls keine übergeben)
   const facilityGroups =
-    groups && groups.length > 0
+    Array.isArray(groups) && groups.length > 0
       ? groups
       : StorageService.getDefaultGroups();
 
-  // Standardziel: Team → eigene Stammgruppe, Admin → alle
+  // Standardziel: Team → eigene Stammgruppe, Admin → „Alle“
   const initialTarget = useMemo(() => {
     if (user.role === "team" && user.primaryGroup) {
       return user.primaryGroup;
@@ -25,10 +53,9 @@ export default function NewsCreate({ user, groups, onSubmit }) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState(initialTarget);
 
-  // Nachricht senden
+  // Nachrichtenobjekt zusammenstellen und übergeben
   const handleSubmit = () => {
     if (!text.trim()) return;
-
     const item = {
       id: crypto.randomUUID(),
       text: text.trim(),
@@ -37,10 +64,62 @@ export default function NewsCreate({ user, groups, onSubmit }) {
       target,
       date: new Date().toISOString(),
     };
-
     onSubmit(item);
     setText("");
     setTarget(initialTarget);
+  };
+
+  /**
+   * Wandelt einen gespeicherten Icon-Namen (z. B. "flame") in das passende
+   * Lucide-Icon um. Für standardmäßige Gruppen wird das React-Element
+   * unverändert übernommen.
+   */
+  const resolveIcon = (icon) => {
+    if (React.isValidElement(icon)) return icon;
+    const map = {
+      globe: <Globe size={16} />,
+      droplets: <Droplets size={16} />,
+      flame: <Flame size={16} />,
+      sun: <Sun size={16} />,
+      flower2: <Flower2 size={16} />,
+      wind: <Wind size={16} />,
+      cloud: <Cloud size={16} />,
+      leaf: <Leaf size={16} />,
+      "tree-pine": <TreePine size={16} />,
+      mountain: <Mountain size={16} />,
+      snowflake: <Snowflake size={16} />,
+      "moon-star": <MoonStar size={16} />,
+      palette: <Palette size={16} />,
+      brush: <Brush size={16} />,
+      blocks: <Blocks size={16} />,
+      puzzle: <Puzzle size={16} />,
+      "music-4": <Music4 size={16} />,
+      baby: <Baby size={16} />,
+      smile: <Smile size={16} />,
+      "users-round": <UsersRound size={16} />,
+      "book-open": <BookOpen size={16} />,
+      star: <Star size={16} />,
+      clover: <Clover size={16} />,
+    };
+    return map[icon] || <Megaphone size={16} />;
+  };
+
+  /**
+   * Ermittelt eine helle Hintergrundfarbe + Textfarbe aus der Gruppenfarbe.
+   * Für Standardgruppen wird `light` verwendet, für dynamische Farben (z. B. bg-red-500)
+   * wird automatisch eine 50er-Nuance und der passende Textton gewählt.
+   */
+  const computeLight = (group) => {
+    if (!group) return "bg-stone-100 text-stone-800";
+    if (group.light) return group.light;
+    const colorClass = group.color || "";
+    const parts = colorClass.split(" ");
+    const bg = parts.find((c) => c.startsWith("bg-"));
+    if (!bg || bg.includes("[#")) return "bg-stone-100 text-stone-800";
+    const comps = bg.split("-");
+    if (comps.length < 3) return "bg-stone-100 text-stone-800";
+    const colorName = comps[1];
+    return `bg-${colorName}-50 text-${colorName}-800`;
   };
 
   // Aktuell ausgewählte Gruppe
@@ -49,16 +128,16 @@ export default function NewsCreate({ user, groups, onSubmit }) {
       ? facilityGroups.find((g) => g.id === target)
       : null;
 
-  // Header‑Design abhängig von Gruppe
+  // Farben & Icon für den Header (abhängig von Gruppe)
   const headerBg = selectedGroup
-    ? selectedGroup.light
+    ? computeLight(selectedGroup)
     : "bg-stone-100 text-stone-800";
   const iconBg = selectedGroup
     ? selectedGroup.color
     : "bg-stone-200 text-stone-700";
-  const headerIcon = selectedGroup ? selectedGroup.icon : (
-    <Megaphone size={16} />
-  );
+  const headerIcon = selectedGroup
+    ? resolveIcon(selectedGroup.icon)
+    : <Megaphone size={16} />;
   const targetLabel =
     target === "all"
       ? "Alle"
@@ -68,19 +147,24 @@ export default function NewsCreate({ user, groups, onSubmit }) {
 
   return (
     <div className="space-y-4">
-      {/* Header mit Titel & Gruppenauswahl */}
-      <div className={`p-5 rounded-2xl border shadow-sm ${headerBg}`}>
+      {/* Farbiger Header mit Icon und Gruppenauswahl */}
+      <div className={`p-5 rounded-3xl border shadow-sm ${headerBg}`}>
         <div className="flex items-center gap-3">
+          {/* Kreis mit Haupt-Icon */}
           <div className={`${iconBg} p-2 rounded-2xl shadow`}>
             {headerIcon}
           </div>
           <div>
             <h3 className="text-lg font-bold">News</h3>
-            <p className="text-xs">Neue Mitteilung an Eltern senden</p>
+            <p className="text-xs">
+              Neue Mitteilung an Eltern senden
+            </p>
           </div>
         </div>
+
+        {/* Gruppenwahl: Alle + Gruppenchips */}
         <div className="mt-4 flex flex-wrap gap-2">
-          {/* Alle‑Chip */}
+          {/* Chip „Alle“ */}
           <button
             type="button"
             onClick={() => setTarget("all")}
@@ -92,7 +176,8 @@ export default function NewsCreate({ user, groups, onSubmit }) {
           >
             Alle
           </button>
-          {/* Gruppen‑Chips */}
+
+          {/* Gruppenchips mit korrektem Icon */}
           {facilityGroups.map((g) => (
             <button
               key={g.id}
@@ -104,7 +189,7 @@ export default function NewsCreate({ user, groups, onSubmit }) {
                   : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
               }`}
             >
-              {g.icon}
+              {resolveIcon(g.icon)}
               <span>{g.name}</span>
             </button>
           ))}
@@ -125,7 +210,7 @@ export default function NewsCreate({ user, groups, onSubmit }) {
         />
       </div>
 
-      {/* Dynamischer Senden‑Button */}
+      {/* Senden-Button mit dynamischem Text */}
       <button
         type="button"
         onClick={handleSubmit}
