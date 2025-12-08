@@ -9,8 +9,8 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 
-import AuthScreen from "./components/Auth/AuthScreen";
-import ForceReset from "./components/Auth/ForceReset";
+import AuthScreen from "./components/auth/AuthScreen";
+import ForceReset from "./components/auth/ForceReset";
 
 import News from "./components/news/News";
 import GroupArea from "./components/group/GroupArea";

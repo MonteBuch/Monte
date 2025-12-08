@@ -202,7 +202,7 @@ export default function NewsCreate({
       {/* HEADER - Jetzt mit Inline Style für exakte Farbe */}
       <div 
         className="p-5 rounded-3xl border shadow-sm text-stone-800 transition-colors duration-300"
-        style={{ backgroundColor: styles.headerExact }}
+        style={{ backgroundColor: styles.headerColor }}
       >
         <div className="flex items-center gap-3">
           <div className={`${iconBg} p-2 rounded-2xl shadow transition-colors duration-300`}>
@@ -228,25 +228,27 @@ export default function NewsCreate({
             Alle
           </button>
 
-          {groups.map((g) => {
-            const btnStyles = getGroupStyles(g);
-            const isActive = effectiveTarget === g.id;
+          {groups
+  .filter((g) => g.id !== "event")
+  .map((g) => {
+    const btnStyles = getGroupStyles(g);
+    const isActive = effectiveTarget === g.id;
 
-            return (
-              <button
-                key={g.id}
-                onClick={() => onGroupChange(g.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1 transition-all ${
-                  isActive
-                    ? `${btnStyles.chipClass} border-transparent shadow-sm`
-                    : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
-                }`}
-              >
-                {isActive && <btnStyles.Icon size={12} />}
-                {g.name}
-              </button>
-            );
-          })}
+    return (
+      <button
+        key={g.id}
+        onClick={() => onGroupChange(g.id)}
+        className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1 transition-all ${
+          isActive
+            ? `${btnStyles.chipClass} border-transparent shadow-sm`
+            : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
+        }`}
+      >
+        {isActive && <btnStyles.Icon size={12} />}
+        {g.name}
+      </button>
+    );
+  })}
         </div>
       </div>
 

@@ -3,11 +3,10 @@ import {
   DEFAULT_PARENT_CODE,
   DEFAULT_TEAM_CODE,
   DEFAULT_ADMIN_CODE,
-  GROUPS, 
+  GROUPS,
 } from "./constants.jsx";
 
 const PREFIX = "montessori_kita";
-
 const key = (name) => `${PREFIX}_${name}`;
 
 const safeGet = (k, fallback) => {
@@ -73,25 +72,36 @@ export const StorageService = {
     if (facility && facility.groups && facility.groups.length > 0) {
       return facility.groups;
     }
-    return GROUPS; 
+    return GROUPS;
   },
 
   saveGroups(newGroups) {
     const facility = this.getFacilitySettings();
     this.saveFacilitySettings({
       ...facility,
-      groups: newGroups
+      groups: newGroups,
     });
   },
 
-  getAbsences() { return this.get("absences"); },
-  saveAbsences(list) { this.set("absences", list); },
+  getAbsences() {
+    return this.get("absences");
+  },
+  saveAbsences(list) {
+    this.set("absences", list);
+  },
 
-  getMealPlan() { return this.get("mealplan"); },
-  saveMealPlan(plan) { this.set("mealplan", plan); },
+  getMealPlan() {
+    return this.get("mealplan");
+  },
+  saveMealPlan(plan) {
+    this.set("mealplan", plan);
+  },
 
-  getDefaultGroups() { return GROUPS; },
+  getDefaultGroups() {
+    return GROUPS;
+  },
 
+  // ✅ HIER IST DER WICHTIGE TEIL – KOMPLETT SAUBER & DEFINITIV
   getFacilitySettings() {
     const defaults = {
       name: "Montessori Kinderhaus",
@@ -105,8 +115,29 @@ export const StorageService = {
       groups: GROUPS,
     };
 
-    const current = safeGet(key("facility_settings"), null);
-    if (!current) return defaults;
+    let current = safeGet(key("facility_settings"), null);
+
+    // ✅ ERSTSTART → Defaults setzen
+    if (!current) {
+      current = defaults;
+      safeSet(key("facility_settings"), current);
+      return current;
+    }
+
+    // ✅ EVENT-GRUPPE IMMER ERZINGEN (auch bei bestehenden Daten!)
+    if (current.groups && !current.groups.find((g) => g.id === "event")) {
+      current.groups = [
+        {
+          id: "event",
+          name: "Event",
+          color: "bg-stone-300 text-stone-800",
+          icon: "rainbow",
+          special: "event",
+        },
+        ...current.groups,
+      ];
+      safeSet(key("facility_settings"), current);
+    }
 
     return {
       ...defaults,
@@ -115,9 +146,10 @@ export const StorageService = {
         ...defaults.codes,
         ...(current.codes || {}),
       },
-      groups: current.groups && current.groups.length > 0
-        ? current.groups
-        : defaults.groups,
+      groups:
+        current.groups && current.groups.length > 0
+          ? current.groups
+          : defaults.groups,
     };
   },
 
@@ -130,9 +162,10 @@ export const StorageService = {
         ...current.codes,
         ...(settings.codes || {}),
       },
-      groups: settings.groups && settings.groups.length > 0
-        ? settings.groups
-        : current.groups,
+      groups:
+        settings.groups && settings.groups.length > 0
+          ? settings.groups
+          : current.groups,
     };
     safeSet(key("facility_settings"), merged);
   },

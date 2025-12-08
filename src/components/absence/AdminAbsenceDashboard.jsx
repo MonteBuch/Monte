@@ -1,3 +1,4 @@
+// src/components/absence/AdminAbsenceDashboard.jsx
 import React, { useEffect, useState, useMemo } from "react";
 import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
@@ -13,18 +14,23 @@ const REASON_STYLES = {
 
 export default function AdminAbsenceDashboard({ user }) {
   const facility = StorageService.getFacilitySettings();
-  const groups = facility?.groups || [];
 
-  const [groupId, setGroupId] = useState(user.primaryGroup || groups[0]?.id);
+  // ✅ EVENT HIER GLOBAL ENTFERNT
+  const groups = (facility?.groups || []).filter((g) => g.id !== "event");
+
+  const [groupId, setGroupId] = useState(
+    user.primaryGroup || groups[0]?.id
+  );
   const [activeTab, setActiveTab] = useState("new");
   const [entries, setEntries] = useState([]);
 
   const load = () => {
     const all = StorageService.get("absences") || [];
 
-    const filtered = all.filter((e) => e.groupId === groupId);
+    const filtered = all
+      .filter((e) => e.groupId === groupId)
+      .filter((e) => e.groupId !== "event"); // ✅ EVENT-MELDUNGEN RAUS
 
-    // automatische Bereinigung abgelaufener, bereits gelesener Meldungen
     const cleaned = filtered.filter((e) => {
       if (e.status !== "read") return true;
       const end = e.type === "range" ? e.dateTo : e.dateFrom;
@@ -40,7 +46,7 @@ export default function AdminAbsenceDashboard({ user }) {
   };
 
   useEffect(() => {
-    load();
+    if (groupId) load();
   }, [groupId]);
 
   const markRead = (id) => {
@@ -98,9 +104,6 @@ export default function AdminAbsenceDashboard({ user }) {
 
   const renderCard = (e, faded = false) => {
     const reasonStyle = REASON_STYLES[e.reason] || REASON_STYLES.sonstiges;
-    const entryGroup = getGroupStyles(
-      getGroupById(groups, e.groupId)
-    );
 
     return (
       <div
@@ -135,15 +138,6 @@ export default function AdminAbsenceDashboard({ user }) {
           </div>
 
           <div className="flex flex-col items-end gap-2">
-            {entryGroup && (
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${entryGroup.chipClass}`}
-              >
-                <entryGroup.Icon size={12} />
-                {entryGroup.name}
-              </span>
-            )}
-
             <div className="flex gap-2">
               {e.status === "new" ? (
                 <button
@@ -178,23 +172,24 @@ export default function AdminAbsenceDashboard({ user }) {
     <div className="space-y-6">
       {/* HEADER */}
       <div
-        className={`p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3 ${currentGroup.headerApproxClass}`}
+        className="p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3"
+        style={{ backgroundColor: currentGroup?.headerColor }}
       >
         <div className="flex items-center gap-3">
           <div
-            className={`${currentGroup.chipClass} p-2 rounded-2xl text-white shadow`}
+            className={`${currentGroup?.chipClass} p-2 rounded-2xl text-white shadow`}
           >
-            <currentGroup.Icon size={20} />
+            {currentGroup && <currentGroup.Icon size={20} />}
           </div>
           <div>
             <h2 className="text-xl font-bold text-stone-800">Meldungen</h2>
             <p className="text-xs text-stone-600">
-              Abwesenheiten der Gruppe {currentGroup.name}
+              Abwesenheiten der Gruppe {currentGroup?.name}
             </p>
           </div>
         </div>
 
-        {/* CHIP-Auswahl */}
+        {/* ✅ CHIP-Auswahl OHNE EVENT */}
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
           {groups.map((g) => {
             const styles = getGroupStyles(g);

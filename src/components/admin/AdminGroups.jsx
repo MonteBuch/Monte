@@ -29,6 +29,7 @@ import {
   BookOpen,
   Star,
   Clover,
+  Rainbow, // ✅ neu: Event-Icon
 } from "lucide-react";
 
 import {
@@ -44,7 +45,7 @@ import AddGroupModal from "./groups/AddGroupModal";
 import EditGroupModal from "./groups/EditGroupModal";
 import SaveButton from "../ui/SaveButton";
 
-/* ICON SET unverändert */
+/* ICON SET */
 export const ICON_SET = [
   { id: "globe", icon: <Globe size={18} /> },
   { id: "droplets", icon: <Droplets size={18} /> },
@@ -69,28 +70,23 @@ export const ICON_SET = [
   { id: "book-open", icon: <BookOpen size={18} /> },
   { id: "star", icon: <Star size={18} /> },
   { id: "clover", icon: <Clover size={18} /> },
+  { id: "rainbow", icon: <Rainbow size={18} /> }, // ✅ für Event
 ];
 
-/* * FIX: Brauntöne hinzugefügt für Gruppe "Erde".
- * Ich habe bg-amber-700 und bg-amber-800 ergänzt, sowie 
- * zur Sicherheit dunklere Steintöne (stone), falls "Erde" eher gräulich ist.
- */
 export const COLOR_SET = [
-  // Pflichtfarben (Bestand)
-  "bg-amber-700",   // Erde
-  "bg-blue-500",    // Wasser
-  "bg-red-500",     // Feuer
-  "bg-yellow-400",  // Sonne
-  "bg-pink-500",    // Blume
-
-  // Erweiterungsfarben (klar unterscheidbar)
-  "bg-green-500",
-  "bg-teal-500",
-  "bg-violet-500",
-  "bg-orange-500",
-  "bg-cyan-500",
-  "bg-slate-500",
-  "bg-fuchsia-500",
+  "bg-amber-400","bg-amber-500",
+  "bg-yellow-400","bg-yellow-500",
+  "bg-blue-400","bg-blue-500",
+  "bg-sky-400","bg-sky-500",
+  "bg-cyan-400","bg-cyan-500",
+  "bg-green-400","bg-green-500",
+  "bg-emerald-400","bg-emerald-500",
+  "bg-pink-400","bg-pink-500",
+  "bg-rose-400","bg-rose-500",
+  "bg-violet-400","bg-violet-500",
+  // Brauntöne / Erde
+  "bg-amber-700", "bg-amber-800",
+  "bg-stone-600", "bg-stone-700",
 ];
 
 const extractBgClass = (colorString) => {
@@ -99,7 +95,8 @@ const extractBgClass = (colorString) => {
   return parts.find((c) => c.startsWith("bg-")) || "bg-amber-500";
 };
 
-const iconFor = (id) => ICON_SET.find((i) => i.id === id)?.icon || <Globe size={18} />;
+const iconFor = (id) =>
+  ICON_SET.find((i) => i.id === id)?.icon || <Globe size={18} />;
 
 const reorder = (list, startIndex, endIndex) => {
   const result = [...list];
@@ -115,19 +112,22 @@ export default function AdminGroups() {
   const [adding, setAdding] = useState(false);
   const [migrateModal, setMigrateModal] = useState(null);
   const [migrationTarget, setMigrationTarget] = useState("");
-  const [saved, setSaved] = useState(false);
 
-  /* LOAD GROUPS (unverändert) */
   useEffect(() => {
     const facility = StorageService.getFacilitySettings();
     const stored = facility?.groups;
 
     if (Array.isArray(stored) && stored.length > 0) {
-      setGroups(stored);
-      setInitial(stored);
+      // ✅ Event-Icon bei bestehenden Daten auf "rainbow" korrigieren
+      const fixed = stored.map((g) =>
+        g.id === "event" ? { ...g, icon: "rainbow" } : g
+      );
+      setGroups(fixed);
+      setInitial(fixed);
       return;
     }
 
+    // Fallback / Initialmapping aus GROUPS
     const mapped = GROUPS.map((g) => ({
       id: g.id,
       name: g.name,
@@ -143,6 +143,8 @@ export default function AdminGroups() {
           ? "droplets"
           : g.id === "blume"
           ? "flower2"
+          : g.id === "event"
+          ? "rainbow"
           : "globe",
     }));
 
@@ -152,8 +154,7 @@ export default function AdminGroups() {
 
   const changed = JSON.stringify(groups) !== JSON.stringify(initial);
 
-  /* SAVE */
-  const save = async () => {
+  const save = () => {
     const facility = StorageService.getFacilitySettings() || {};
     StorageService.saveFacilitySettings({
       ...facility,
@@ -162,15 +163,20 @@ export default function AdminGroups() {
     setInitial(groups);
   };
 
-  /* DRAG & DROP */
   const onDragEnd = (result) => {
     if (!result.destination) return;
-    const reordered = reorder(groups, result.source.index, result.destination.index);
+    const reordered = reorder(
+      groups,
+      result.source.index,
+      result.destination.index
+    );
     setGroups(reordered);
   };
 
-  /* DELETE + MIGRATION (unverändert) */
   const attemptDelete = (group) => {
+    // ✅ Event ist nicht löschbar
+    if (group.id === "event") return;
+
     if (groups.length <= 1) return;
 
     const users = StorageService.get("users") || [];
@@ -239,7 +245,6 @@ export default function AdminGroups() {
         Gruppen hinzufügen, bearbeiten, sortieren oder löschen.
       </p>
 
-      {/* Gruppe hinzufügen */}
       <button
         onClick={() => setAdding(true)}
         className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl font-semibold text-sm active:scale-95"
@@ -248,7 +253,6 @@ export default function AdminGroups() {
         Gruppe hinzufügen
       </button>
 
-      {/* DRAG & DROP LISTE */}
       <DragDropContext onDragEnd={onDragEnd}>
         <Droppable droppableId="groups">
           {(provided) => (
@@ -258,21 +262,18 @@ export default function AdminGroups() {
               {...provided.droppableProps}
             >
               {groups.map((g, index) => (
-                <Draggable draggableId={g.id} index={index} key={g.id}>
+                <Draggable key={g.id} draggableId={g.id} index={index}>
                   {(drag) => (
                     <div
                       ref={drag.innerRef}
                       {...drag.draggableProps}
                       className="bg-white p-4 rounded-2xl border border-stone-200 shadow-sm flex items-center justify-between"
                     >
-                      {/* Links */}
+                      {/* Links: Handle, Farbbalken, Icon, Name */}
                       <div className="flex items-center gap-3">
-
-                        {/* DragHandle */}
                         <div
                           {...drag.dragHandleProps}
-                          className="text-stone-400 cursor-grab active:cursor-grabbing block"
-                          style={{ touchAction: "none" }}
+                          className="cursor-grab text-stone-400 hover:text-stone-600"
                         >
                           <GripVertical size={18} />
                         </div>
@@ -292,26 +293,30 @@ export default function AdminGroups() {
                         </div>
                       </div>
 
-                      {/* Rechts */}
+                      {/* Rechts: Edit / Delete – Event ist geschützt */}
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setEditing(g)}
-                          className="p-2 bg-stone-100 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-200"
-                        >
-                          <Edit size={14} />
-                        </button>
+                        {g.id !== "event" && (
+                          <button
+                            onClick={() => setEditing(g)}
+                            className="p-2 bg-stone-100 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-200"
+                          >
+                            <Edit size={14} />
+                          </button>
+                        )}
 
-                        <button
-                          onClick={() => attemptDelete(g)}
-                          disabled={groups.length <= 1}
-                          className={`p-2 rounded-lg border ${
-                            groups.length <= 1
-                              ? "bg-stone-100 border-stone-200 text-stone-300 cursor-not-allowed"
-                              : "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
-                          }`}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {g.id !== "event" && (
+                          <button
+                            onClick={() => attemptDelete(g)}
+                            disabled={groups.length <= 1}
+                            className={`p-2 rounded-lg border ${
+                              groups.length <= 1
+                                ? "bg-stone-100 border-stone-200 text-stone-300 cursor-not-allowed"
+                                : "bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
+                            }`}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -324,14 +329,12 @@ export default function AdminGroups() {
         </Droppable>
       </DragDropContext>
 
-      {/* NEUER SPEICHERN-BUTTON */}
       <SaveButton
         isDirty={changed}
         onClick={save}
         label="Änderungen speichern"
       />
 
-      {/* Modals */}
       {adding && (
         <AddGroupModal
           ICON_SET={ICON_SET}

@@ -11,25 +11,62 @@ export default function GroupArea({ user }) {
   const isStaff = role === "team" || role === "admin";
   const isAdminView = isStaff;
 
-  const children = Array.isArray(user.children) ? user.children : [];
+  const realChildren = Array.isArray(user.children) ? user.children : [];
 
   const facility = StorageService.getFacilitySettings();
   const groups = facility?.groups || [];
+
+  // ✅ ALLE LISTEN GLOBAL LADEN (für Event-Sichtbarkeit)
+  const allLists = useMemo(() => {
+    return StorageService.get("grouplists") || [];
+  }, []);
+
+  // ✅ Gibt es mindestens eine aktive Event-Liste?
+  const hasActiveEventLists = useMemo(() => {
+    return allLists.some((l) => l.groupId === "event");
+  }, [allLists]);
+
+  // ✅ VIRTUELLES EVENT-KIND FÜR GROUPCHIPS
+  // ✅ UND: Event IMMER AUF POSITION 1
+  const children = useMemo(() => {
+    if (isStaff) return realChildren;
+
+    let base = [...realChildren];
+
+    if (hasActiveEventLists) {
+      base = [
+        {
+          id: "__event__",
+          name: "Event",
+          group: "event",
+        },
+        ...base, // ✅ Event immer vorne
+      ];
+    }
+
+    return base;
+  }, [realChildren, hasActiveEventLists, isStaff]);
 
   // aktive Gruppe
   const [activeGroup, setActiveGroup] = useState(() => {
     if (isStaff) {
       return user.primaryGroup || groups[0]?.id;
     }
-    if (children.length > 0) {
-      return children[0].group;
+
+    // ✅ Wenn Event sichtbar ist → automatisch vorausgewählt
+    if (hasActiveEventLists) {
+      return "event";
     }
+
+    if (realChildren.length > 0) {
+      return realChildren[0].group;
+    }
+
     return groups[0]?.id;
   });
 
   const [lists, setLists] = useState([]);
 
-  // Sichtbare Gruppen-IDs
   const visibleGroupIds = isStaff
     ? groups.map((g) => g.id)
     : [...new Set(children.map((c) => c.group))];
@@ -37,11 +74,13 @@ export default function GroupArea({ user }) {
   const childrenView = !isStaff && children.length > 1;
 
   useEffect(() => {
-    if (!isStaff && children.length > 0) {
-      setActiveGroup(children[0].group);
+    if (!isStaff && hasActiveEventLists) {
+      setActiveGroup("event"); // ✅ Event bleibt aktiv
+    } else if (!isStaff && realChildren.length > 0) {
+      setActiveGroup(realChildren[0].group);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasActiveEventLists]);
 
   useEffect(() => {
     loadLists();
@@ -56,17 +95,14 @@ export default function GroupArea({ user }) {
     setLists(filtered);
   };
 
-  // ✅ Robuster Gruppen-Finder (ID → Name → Kind → Fallback)
+  // ✅ Robuster Gruppen-Finder
   const currentGroupRaw = useMemo(() => {
-    // 1. Direkter ID-Match
     let grp = getGroupById(groups, activeGroup);
     if (grp) return grp;
 
-    // 2. Name-Match (Altbestände)
     grp = groups.find((g) => g.name === activeGroup);
     if (grp) return grp;
 
-    // 3. Kind-basierter Fallback
     const child = children.find(
       (c) => c.group === activeGroup || c.name === activeGroup
     );
@@ -79,7 +115,6 @@ export default function GroupArea({ user }) {
       if (byName) return byName;
     }
 
-    // 4. Letzter sicherer Fallback → Wolke
     return {
       id: "fallback-cloud",
       name: "Wolke",
@@ -97,7 +132,8 @@ export default function GroupArea({ user }) {
     <div className="space-y-5">
       {/* HEADER-KARTE */}
       <div
-        className={`p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3 ${currentGroup.headerApproxClass}`}
+        className="p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3"
+        style={{ backgroundColor: currentGroup.headerColor }}
       >
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
@@ -118,7 +154,6 @@ export default function GroupArea({ user }) {
               </p>
             </div>
           </div>
-          {/* ✅ Rechts entfernt wie gewünscht */}
         </div>
 
         <GroupChips

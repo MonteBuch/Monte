@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from "react";
 import { Eye, EyeOff, Trash2, CalendarDays } from "lucide-react";
 import { StorageService } from "../../lib/storage";
-import { GROUPS } from "../../lib/constants";
 
 const STATUS_KEY = "absence_status";
 
@@ -28,8 +27,7 @@ function formatDateRange(from, to) {
   }
 
   const sameYear = fromDate.getFullYear() === toDate.getFullYear();
-  const sameMonth =
-    sameYear && fromDate.getMonth() === toDate.getMonth();
+  const sameMonth = sameYear && fromDate.getMonth() === toDate.getMonth();
 
   const fromLabel = fromDate.toLocaleDateString("de-DE", {
     day: "2-digit",
@@ -61,9 +59,8 @@ function formatReason(reason) {
   }
 }
 
-// Hilfsfunktion: Status-Struktur aus Storage holen
 function loadStatusForUser(username) {
-  const raw = StorageService.get(STATUS_KEY); // kann Array ODER Objekt sein
+  const raw = StorageService.get(STATUS_KEY);
   const allStatus = raw && !Array.isArray(raw) ? raw : {};
   const userStatus = allStatus[username] || {};
   return { allStatus, userStatus };
@@ -82,28 +79,26 @@ export default function AbsenceTeam({ user }) {
   const isAdmin = user.role === "admin";
   const isTeam = user.role === "team";
 
+  const facility = StorageService.getFacilitySettings();
+  const allGroups = (facility?.groups || []).filter((g) => g.id !== "event"); // ✅ EVENT HIER GLOBAL ENTFERNT
+
   const [selectedGroup, setSelectedGroup] = useState(
     isAdmin ? "all" : user.primaryGroup || "all"
   );
 
-  // Initial-Load: Meldungen + Status + Auto-Löschung alter gelesener Meldungen
   useEffect(() => {
     const absences = StorageService.get("absences") || [];
     const todayIso = new Date().toISOString().slice(0, 10);
 
-    const { allStatus, userStatus } = loadStatusForUser(user.username);
+    const { userStatus } = loadStatusForUser(user.username);
     let changed = false;
 
-    // Sicherstellen, dass es für jede Meldung einen Status gibt
     absences.forEach((e) => {
       const meta = userStatus[e.id] || { status: "new", deleted: false };
 
-      // Auto-Löschung: Nur für diesen Erzieher, nur wenn gelesen & abgelaufen
       if (!meta.deleted && meta.status === "read") {
         const endIso =
-          e.type === "range"
-            ? (e.dateTo || e.dateFrom)
-            : e.dateFrom;
+          e.type === "range" ? e.dateTo || e.dateFrom : e.dateFrom;
 
         if (endIso && endIso < todayIso) {
           meta.deleted = true;
@@ -122,7 +117,6 @@ export default function AbsenceTeam({ user }) {
     setStatusMap(userStatus);
   }, [user.username]);
 
-  // Wenn Rolle / Stammgruppe sich ändert → Vorauswahl aktualisieren
   useEffect(() => {
     setSelectedGroup(isAdmin ? "all" : user.primaryGroup || "all");
   }, [isAdmin, user.primaryGroup]);
@@ -137,13 +131,11 @@ export default function AbsenceTeam({ user }) {
     return meta?.deleted === true;
   };
 
-  const dateLabel = (e) => {
-    return e.type === "single"
+  const dateLabel = (e) =>
+    e.type === "single"
       ? formatDate(e.dateFrom)
       : formatDateRange(e.dateFrom, e.dateTo);
-  };
 
-  // Status ändern (nur für diesen Nutzer)
   const setStatus = (entry, newStatus) => {
     const { userStatus } = loadStatusForUser(user.username);
     const meta = userStatus[entry.id] || { status: "new", deleted: false };
@@ -153,7 +145,6 @@ export default function AbsenceTeam({ user }) {
     setStatusMap(userStatus);
   };
 
-  // Löschen (nur für diesen Nutzer, nicht global)
   const removeForUser = (entry) => {
     if (!confirm("Meldung für dieses Profil ausblenden?")) return;
 
@@ -165,13 +156,13 @@ export default function AbsenceTeam({ user }) {
     setStatusMap(userStatus);
   };
 
-  // Gefilterte, sichtbare Meldungen (ohne gelöschte)
   const visibleEntries = allEntries
     .filter((e) => !isDeletedForUser(e))
     .filter((e) => {
       if (selectedGroup === "all") return true;
       return e.groupId === selectedGroup;
     })
+    .filter((e) => e.groupId !== "event") // ✅ EVENT-MELDUNGEN KOMPLETT RAUS
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const newEntries = visibleEntries.filter(
@@ -181,11 +172,10 @@ export default function AbsenceTeam({ user }) {
     (e) => effectiveStatus(e) === "read"
   );
 
-  // Unread-Badges pro Gruppe berechnen
   const unreadCountByGroup = allEntries.reduce((acc, e) => {
     if (isDeletedForUser(e)) return acc;
-    const status = effectiveStatus(e);
-    if (status !== "new") return acc;
+    if (effectiveStatus(e) !== "new") return acc;
+    if (e.groupId === "event") return acc; // ✅ KEIN BADGE FÜR EVENT
     const gid = e.groupId || "unknown";
     acc[gid] = (acc[gid] || 0) + 1;
     return acc;
@@ -197,23 +187,19 @@ export default function AbsenceTeam({ user }) {
   );
 
   const renderEntryCard = (entry, faded) => {
-    const g = GROUPS.find((x) => x.id === entry.groupId);
+    const g = allGroups.find((x) => x.id === entry.groupId);
     const reason = formatReason(entry.reason);
 
     return (
       <div
         key={entry.id}
         className={`p-4 rounded-2xl border shadow-sm space-y-3 ${
-          faded
-            ? "bg-stone-50 text-stone-500"
-            : "bg-white text-stone-800"
+          faded ? "bg-stone-50 text-stone-500" : "bg-white text-stone-800"
         }`}
       >
         <div className="flex justify-between items-start gap-3">
           <div className="space-y-1.5">
-            <p className="font-semibold text-sm">
-              {entry.childName}
-            </p>
+            <p className="font-semibold text-sm">{entry.childName}</p>
 
             <p className="text-xs text-stone-600 flex items-center gap-1">
               <CalendarDays size={12} className="text-stone-400" />
@@ -227,9 +213,7 @@ export default function AbsenceTeam({ user }) {
             </span>
 
             {entry.reason === "sonstiges" && entry.otherText && (
-              <p className="text-xs text-stone-600">
-                {entry.otherText}
-              </p>
+              <p className="text-xs text-stone-600">{entry.otherText}</p>
             )}
           </div>
 
@@ -248,7 +232,6 @@ export default function AbsenceTeam({ user }) {
                 <button
                   onClick={() => setStatus(entry, "read")}
                   className="p-2 bg-stone-100 rounded-lg hover:bg-stone-200"
-                  title="Als gelesen markieren"
                 >
                   <Eye size={14} />
                 </button>
@@ -256,7 +239,6 @@ export default function AbsenceTeam({ user }) {
                 <button
                   onClick={() => setStatus(entry, "new")}
                   className="p-2 bg-stone-100 rounded-lg hover:bg-stone-200"
-                  title="Als ungelesen markieren"
                 >
                   <EyeOff size={14} />
                 </button>
@@ -265,7 +247,6 @@ export default function AbsenceTeam({ user }) {
               <button
                 onClick={() => removeForUser(entry)}
                 className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
-                title="Für dieses Profil löschen"
               >
                 <Trash2 size={14} />
               </button>
@@ -283,9 +264,7 @@ export default function AbsenceTeam({ user }) {
 
   return (
     <div className="space-y-6">
-      {/* Gruppenauswahl wie News: Chips + 'Alle' vorn */}
       <div className="flex flex-wrap gap-2">
-        {/* Alle-Gruppen Button */}
         <button
           type="button"
           onClick={() => setSelectedGroup("all")}
@@ -303,8 +282,7 @@ export default function AbsenceTeam({ user }) {
           )}
         </button>
 
-        {/* Gruppen-Auswahl mit Badge für neue Meldungen */}
-        {GROUPS.map((g) => {
+        {allGroups.map((g) => {
           const unread = unreadCountByGroup[g.id] || 0;
           const active = selectedGroup === g.id;
 
@@ -324,7 +302,9 @@ export default function AbsenceTeam({ user }) {
               {unread > 0 && (
                 <span
                   className={`ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] ${
-                    active ? "bg-white/90 text-stone-900" : "bg-amber-400 text-stone-900"
+                    active
+                      ? "bg-white/90 text-stone-900"
+                      : "bg-amber-400 text-stone-900"
                   }`}
                 >
                   {unread}
@@ -335,12 +315,10 @@ export default function AbsenceTeam({ user }) {
         })}
       </div>
 
-      {/* Neue Meldungen */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
           Neue Meldungen
         </h2>
-
         {newEntries.length === 0 ? (
           <div className="bg-white p-4 rounded-2xl border border-dashed border-stone-200 text-xs text-stone-400">
             Keine neuen Meldungen.
@@ -350,12 +328,10 @@ export default function AbsenceTeam({ user }) {
         )}
       </section>
 
-      {/* Gelesene Meldungen */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold text-stone-500 uppercase tracking-wide">
           Gelesene Meldungen
         </h2>
-
         {readEntries.length === 0 ? (
           <div className="bg-white p-4 rounded-2xl border border-dashed border-stone-200 text-xs text-stone-400">
             Keine gelesenen Meldungen.

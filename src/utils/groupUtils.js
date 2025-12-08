@@ -28,6 +28,7 @@ import {
   Star,
   Clover,
   Sprout,
+  Rainbow, // ✅ Event-Icon
 } from "lucide-react";
 
 // 1. ICON-POOL
@@ -59,6 +60,9 @@ export const ICON_POOL = {
   sprout: Sprout,
   water: Droplets,
   tree: TreePine,
+
+  // ✅ Speziell für Event
+  rainbow: Rainbow,
 };
 
 export const DEFAULT_ICON = Star;
@@ -99,8 +103,8 @@ export function parseTailwindColor(twClass) {
 
 // 4. Header-Farbe ableiten
 export function deriveHeaderColor({ h, s, l }) {
-  const newL = Math.min(96, l + 42); 
-  const newS = Math.max(30, s - 20);
+  const newL = Math.min(94, l + 36); // heller als Chip
+  const newS = Math.max(28, s - 40); // deutlich entspannter
   return `hsl(${h}, ${newS}%, ${newL}%)`;
 }
 
@@ -136,8 +140,20 @@ export function getGroupStyles(group) {
       name: "Unbekannt",
       chipClass: "bg-slate-500 text-white",
       headerApproxClass: "bg-slate-100",
-      headerExact: "hsl(215,20%,94%)",
+      headerColor: "hsl(215,20%,94%)",
       Icon: DEFAULT_ICON,
+    };
+  }
+
+  // ✅ Event-Sonderfall: fester Pastell-Header + Regenbogenicon
+  if (group.id === "event" || group.special === "event") {
+    return {
+      id: group.id,
+      name: group.name,
+      chipClass: "bg-stone-300 text-stone-800",
+      headerApproxClass: "bg-purple-100",
+      headerColor: "#f3e8ff", // weiches Fliederpastell, gültig für backgroundColor
+      Icon: ICON_POOL.rainbow,
     };
   }
 
@@ -148,7 +164,7 @@ export function getGroupStyles(group) {
 
   const IconComponent = ICON_POOL[group.icon] || DEFAULT_ICON;
   const hsl = parseTailwindColor(chipClass);
-  let headerExact = "hsl(0, 0%, 95%)"; 
+  let headerExact = "hsl(0, 0%, 95%)";
   let headerApproxClass = "bg-stone-100";
 
   if (hsl) {
@@ -162,7 +178,7 @@ export function getGroupStyles(group) {
     name: group.name,
     chipClass,
     headerApproxClass,
-    headerExact,
+    headerColor: headerExact,
     Icon: IconComponent,
   };
 }
