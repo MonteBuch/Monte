@@ -1,6 +1,8 @@
 // src/components/group/GroupChips.jsx
 import React from "react";
-import { GROUPS } from "../../lib/constants";
+import { Globe } from "lucide-react";
+import { StorageService } from "../../lib/storage";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 /**
  * GroupChips:
@@ -13,32 +15,40 @@ export default function GroupChips({
   activeGroup,
   setActiveGroup,
   children,
-  visibleGroupIds
+  visibleGroupIds,
 }) {
+  const facility = StorageService.getFacilitySettings();
+  const groups = facility?.groups || [];
+
   // ───────────────────────────────────────────────────────────────
   // TEAM-ANSICHT
   // ───────────────────────────────────────────────────────────────
   if (isAdmin) {
-    const visibleGroups = GROUPS.filter((g) =>
-      visibleGroupIds.includes(g.id)
+    const visibleGroups = groups.filter((g) =>
+      visibleGroupIds?.includes(g.id)
     );
 
     return (
       <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
         {visibleGroups.map((g) => {
           const isActive = g.id === activeGroup;
+          const styles = getGroupStyles(g);
+
+          const color = styles.chipClass || "bg-stone-300";
+          const Icon = styles.Icon || Globe;
+
           return (
             <button
               key={g.id}
               onClick={() => setActiveGroup(g.id)}
               className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-bold whitespace-nowrap transition ${
                 isActive
-                  ? `${g.color} border-transparent shadow-sm`
+                  ? `${color} border-transparent shadow-sm`
                   : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
               }`}
             >
-              {g.icon}
-              <span>{g.name}</span>
+              <Icon size={14} />
+              <span>{styles.name || "Unbenannt"}</span>
             </button>
           );
         })}
@@ -47,14 +57,19 @@ export default function GroupChips({
   }
 
   // ───────────────────────────────────────────────────────────────
-  // ELTERN-ANSICHT
-  // Chips = Kinder (mit Gruppenfarben)
+  // ELTERN-ANSICHT (mehrere Kinder)
   // ───────────────────────────────────────────────────────────────
-  if (!isAdmin && children.length > 1) {
+  if (!isAdmin && children?.length > 1) {
     return (
       <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
         {children.map((child) => {
-          const group = GROUPS.find((g) => g.id === child.group);
+          const group = getGroupById(groups, child.group);
+          const styles = getGroupStyles(group);
+
+          const color = styles.chipClass || "bg-stone-300";
+          const Icon = styles.Icon || Globe;
+          const name = child.name || "Kind";
+
           const isActive = child.group === activeGroup;
 
           return (
@@ -63,12 +78,12 @@ export default function GroupChips({
               onClick={() => setActiveGroup(child.group)}
               className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-bold whitespace-nowrap transition ${
                 isActive
-                  ? `${group.color} border-transparent shadow-sm`
+                  ? `${color} border-transparent shadow-sm`
                   : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
               }`}
             >
-              {group.icon}
-              <span>{child.name}</span>
+              <Icon size={14} />
+              <span>{name}</span>
             </button>
           );
         })}

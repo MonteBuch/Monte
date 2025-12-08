@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { Users } from "lucide-react";
 import { StorageService } from "../../lib/storage";
-import { GROUPS } from "../../lib/constants";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 import GroupChips from "./GroupChips";
 import ListCard from "./ListCard";
@@ -9,35 +8,36 @@ import CreateList from "./CreateList";
 
 export default function GroupArea({ user }) {
   const role = user?.role || "parent";
-  const isStaff = role === "team" || role === "admin"; // Team + Leitung
-  const isAdminView = isStaff; // für den bisherigen Header-Text "Team"
+  const isStaff = role === "team" || role === "admin";
+  const isAdminView = isStaff;
 
   const children = Array.isArray(user.children) ? user.children : [];
+
+  const facility = StorageService.getFacilitySettings();
+  const groups = facility?.groups || [];
 
   // aktive Gruppe
   const [activeGroup, setActiveGroup] = useState(() => {
     if (isStaff) {
-      return user.primaryGroup || "erde";
+      return user.primaryGroup || groups[0]?.id;
     }
-    if (children.length > 0 && children[0].group) {
+    if (children.length > 0) {
       return children[0].group;
     }
-    return "erde";
+    return groups[0]?.id;
   });
 
   const [lists, setLists] = useState([]);
 
   // Sichtbare Gruppen-IDs
   const visibleGroupIds = isStaff
-    ? GROUPS.map((g) => g.id)
+    ? groups.map((g) => g.id)
     : [...new Set(children.map((c) => c.group))];
 
-  // Eltern mit mehreren Kindern → Kindertabs
   const childrenView = !isStaff && children.length > 1;
 
-  // Eltern: beim Mount aktive Gruppe auf erstes Kind setzen
   useEffect(() => {
-    if (!isStaff && children.length > 0 && children[0].group) {
+    if (!isStaff && children.length > 0) {
       setActiveGroup(children[0].group);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -56,23 +56,55 @@ export default function GroupArea({ user }) {
     setLists(filtered);
   };
 
+  // ✅ Robuster Gruppen-Finder (ID → Name → Kind → Fallback)
+  const currentGroupRaw = useMemo(() => {
+    // 1. Direkter ID-Match
+    let grp = getGroupById(groups, activeGroup);
+    if (grp) return grp;
+
+    // 2. Name-Match (Altbestände)
+    grp = groups.find((g) => g.name === activeGroup);
+    if (grp) return grp;
+
+    // 3. Kind-basierter Fallback
+    const child = children.find(
+      (c) => c.group === activeGroup || c.name === activeGroup
+    );
+
+    if (child) {
+      const byId = getGroupById(groups, child.group);
+      if (byId) return byId;
+
+      const byName = groups.find((g) => g.name === child.group);
+      if (byName) return byName;
+    }
+
+    // 4. Letzter sicherer Fallback → Wolke
+    return {
+      id: "fallback-cloud",
+      name: "Wolke",
+      color: "bg-cyan-500",
+      icon: "cloud",
+    };
+  }, [groups, activeGroup, children]);
+
   const currentGroup = useMemo(
-    () => GROUPS.find((g) => g.id === activeGroup) || GROUPS[0],
-    [activeGroup]
+    () => getGroupStyles(currentGroupRaw),
+    [currentGroupRaw]
   );
 
   return (
     <div className="space-y-5">
       {/* HEADER-KARTE */}
       <div
-        className={`p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3 ${currentGroup.light}`}
+        className={`p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3 ${currentGroup.headerApproxClass}`}
       >
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-3">
             <div
-              className={`${currentGroup.color} p-2 rounded-2xl text-white shadow`}
+              className={`${currentGroup.chipClass} p-2 rounded-2xl text-white shadow`}
             >
-              {currentGroup.icon}
+              <currentGroup.Icon size={20} />
             </div>
 
             <div>
@@ -81,19 +113,14 @@ export default function GroupArea({ user }) {
               </h2>
               <p className="text-xs text-stone-600">
                 {childrenView
-                  ? "Übersicht zu allen Kindern"
+                  ? "Übersicht zu allen Listen"
                   : `Gruppe ${currentGroup.name}`}
               </p>
             </div>
           </div>
-
-          <div className="flex items-center gap-1 text-xs text-stone-600">
-            <Users size={16} />
-            <span>{isAdminView ? "Team" : "Eltern"}</span>
-          </div>
+          {/* ✅ Rechts entfernt wie gewünscht */}
         </div>
 
-        {/* CHIPS: für Team Gruppen, für Eltern Kinder */}
         <GroupChips
           isAdmin={isAdminView}
           activeGroup={activeGroup}
@@ -123,7 +150,6 @@ export default function GroupArea({ user }) {
         )}
       </div>
 
-      {/* TEAM/LEITUNG: Liste anlegen */}
       {isStaff && (
         <CreateList activeGroup={activeGroup} reload={loadLists} />
       )}

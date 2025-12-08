@@ -1,6 +1,6 @@
-// src/components/absence/AbsenceEditor.jsx
 import React, { useState, useEffect } from "react";
-import { GROUPS } from "../../lib/constants";
+import { StorageService } from "../../lib/storage";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 export default function AbsenceEditor({
   mode = "create",
@@ -16,6 +16,10 @@ export default function AbsenceEditor({
   const [dateTo, setDateTo] = useState(todayIso);
   const [reason, setReason] = useState("urlaub");
   const [otherText, setOtherText] = useState("");
+
+  // Facility-Gruppen laden
+  const facility = StorageService.getFacilitySettings();
+  const groups = facility?.groups || [];
 
   useEffect(() => {
     if (!initialData) return;
@@ -100,7 +104,9 @@ export default function AbsenceEditor({
 
   if (!child) return null;
 
-  const group = GROUPS.find((g) => g.id === child.group);
+  // 🔁 NEU: Gruppe dynamisch aus Facility + groupUtils
+  const groupRaw = getGroupById(groups, child.group);
+  const group = getGroupStyles(groupRaw);
 
   // Mindestdatum für das Enddatum: nicht vor heute und nicht vor dem Startdatum
   const minDateTo = dateFrom && dateFrom > todayIso ? dateFrom : todayIso;
@@ -111,10 +117,10 @@ export default function AbsenceEditor({
       <div className="flex items-center gap-3">
         <div
           className={`${
-            group?.color || "bg-stone-400"
+            group.chipClass || "bg-stone-400 text-white"
           } p-3 rounded-2xl text-white flex items-center justify-center`}
         >
-          {group?.icon}
+          <group.Icon size={18} />
         </div>
         <div>
           <p className="text-sm font-semibold text-stone-900">{child.name}</p>

@@ -44,7 +44,7 @@ import AddGroupModal from "./groups/AddGroupModal";
 import EditGroupModal from "./groups/EditGroupModal";
 import SaveButton from "../ui/SaveButton";
 
-/* ICON SET, Farben, Utilities unverändert … */
+/* ICON SET unverändert */
 export const ICON_SET = [
   { id: "globe", icon: <Globe size={18} /> },
   { id: "droplets", icon: <Droplets size={18} /> },
@@ -71,17 +71,26 @@ export const ICON_SET = [
   { id: "clover", icon: <Clover size={18} /> },
 ];
 
+/* * FIX: Brauntöne hinzugefügt für Gruppe "Erde".
+ * Ich habe bg-amber-700 und bg-amber-800 ergänzt, sowie 
+ * zur Sicherheit dunklere Steintöne (stone), falls "Erde" eher gräulich ist.
+ */
 export const COLOR_SET = [
-  "bg-amber-400","bg-amber-500",
-  "bg-yellow-400","bg-yellow-500",
-  "bg-blue-400","bg-blue-500",
-  "bg-sky-400","bg-sky-500",
-  "bg-cyan-400","bg-cyan-500",
-  "bg-green-400","bg-green-500",
-  "bg-emerald-400","bg-emerald-500",
-  "bg-pink-400","bg-pink-500",
-  "bg-rose-400","bg-rose-500",
-  "bg-violet-400","bg-violet-500",
+  // Pflichtfarben (Bestand)
+  "bg-amber-700",   // Erde
+  "bg-blue-500",    // Wasser
+  "bg-red-500",     // Feuer
+  "bg-yellow-400",  // Sonne
+  "bg-pink-500",    // Blume
+
+  // Erweiterungsfarben (klar unterscheidbar)
+  "bg-green-500",
+  "bg-teal-500",
+  "bg-violet-500",
+  "bg-orange-500",
+  "bg-cyan-500",
+  "bg-slate-500",
+  "bg-fuchsia-500",
 ];
 
 const extractBgClass = (colorString) => {

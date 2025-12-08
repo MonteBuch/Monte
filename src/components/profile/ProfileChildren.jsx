@@ -1,8 +1,10 @@
 // src/components/profile/ProfileChildren.jsx
 import React, { useState } from "react";
 import { ArrowLeft, Plus, Pencil, Trash2 } from "lucide-react";
-import { GROUPS } from "../../lib/constants";
+
+// Standard Importe
 import { StorageService } from "../../lib/storage";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 import ProfileChildModal from "./ProfileChildModal";
 
 function formatBirthday(iso) {
@@ -28,20 +30,18 @@ export default function ProfileChildren({
   const [mode, setMode] = useState("create");
   const [childToDelete, setChildToDelete] = useState(null);
 
+  const allGroups = StorageService.getGroups();
+
   const handleSaveGroup = () => {
     const all = StorageService.get("users");
     const idx = all.findIndex((u) => u.id === user.id);
     if (idx === -1) return;
 
-    const updated = {
-      ...user,
-      primaryGroup,
-    };
+    const updated = { ...user, primaryGroup };
 
     all[idx] = updated;
     StorageService.set("users", all);
     onUpdateUser(updated);
-
     alert("Stammgruppe gespeichert.");
   };
 
@@ -50,10 +50,7 @@ export default function ProfileChildren({
     const idx = all.findIndex((u) => u.id === user.id);
     if (idx === -1) return;
 
-    const updatedUser = {
-      ...user,
-      children: updatedChildren,
-    };
+    const updatedUser = { ...user, children: updatedChildren };
 
     all[idx] = updatedUser;
     StorageService.set("users", all);
@@ -63,7 +60,10 @@ export default function ProfileChildren({
 
   const openCreateModal = () => {
     const defaultGroup =
-      children[0]?.group || user.primaryGroup || GROUPS[0]?.id || "erde";
+      children[0]?.group || 
+      user.primaryGroup || 
+      allGroups[0]?.id || 
+      "erde";
 
     setMode("create");
     setEditingChild({
@@ -101,7 +101,6 @@ export default function ProfileChildren({
 
   return (
     <div className="space-y-6">
-      {/* BACK */}
       <button
         className="flex items-center text-stone-500 gap-2 text-sm"
         onClick={onBack}
@@ -114,25 +113,18 @@ export default function ProfileChildren({
         {isTeam ? "Stammgruppe" : "Meine Kinder"}
       </h2>
 
-      {/* TEAM: NUR STAMMGRUPPE */}
       {isTeam && (
         <div className="space-y-3">
-          <p className="text-xs text-stone-500 uppercase font-bold">
-            Stammgruppe
-          </p>
-
+          <p className="text-xs text-stone-500 uppercase font-bold">Stammgruppe</p>
           <select
             value={primaryGroup || ""}
             onChange={(e) => setPrimaryGroup(e.target.value)}
             className="w-full p-3 rounded-xl bg-stone-50 border border-stone-300 text-sm"
           >
-            {GROUPS.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
+            {allGroups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
             ))}
           </select>
-
           <button
             onClick={handleSaveGroup}
             className="w-full bg-amber-500 rounded-xl text-white font-bold py-2 hover:bg-amber-600 active:scale-[0.99] transition"
@@ -142,7 +134,6 @@ export default function ProfileChildren({
         </div>
       )}
 
-      {/* ELTERN: KINDERLISTE + BEARBEITUNG */}
       {isParent && (
         <div className="space-y-4">
           <div className="flex justify-between items-center">
@@ -160,51 +151,37 @@ export default function ProfileChildren({
           </div>
 
           {children.length === 0 && (
-            <p className="text-sm text-stone-500">
-              Noch keine Kinder hinterlegt.
-            </p>
+            <p className="text-sm text-stone-500">Noch keine Kinder hinterlegt.</p>
           )}
 
           <div className="space-y-3">
             {children.map((c) => {
-              const group = GROUPS.find((g) => g.id === c.group);
+              const groupData = getGroupById(allGroups, c.group);
+              const styles = getGroupStyles(groupData);
+              
               return (
-                <div
-                  key={c.id}
-                  className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden flex"
-                >
-                  {/* Farbbalken links */}
-                  <div
-                    className={`w-2 ${
-                      group?.color || "bg-stone-400"
-                    }`}
-                  />
-
+                <div key={c.id} className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden flex">
+                  <div className={`w-2 ${styles.chipClass.replace("text-white", "")}`} />
                   <div className="flex-1 p-4 flex justify-between items-center">
                     <div>
-                      <p className="font-semibold text-stone-800 text-sm">
-                        {c.name}
-                      </p>
+                      <p className="font-semibold text-stone-800 text-sm">{c.name}</p>
                       <p className="text-xs text-stone-500 mt-1 flex items-center gap-1">
-                        {group?.icon}
-                        <span>{group?.name}</span>
+                        <styles.Icon size={14} />
+                        <span>{styles.name}</span>
                       </p>
                       {(c.birthday || c.notes) && (
                         <p className="text-[11px] text-stone-400 mt-1">
-                          {c.birthday &&
-                            `Geburtstag: ${formatBirthday(c.birthday)}`}
+                          {c.birthday && `Geburtstag: ${formatBirthday(c.birthday)}`}
                           {c.birthday && c.notes && " • "}
                           {c.notes && "Hinweise hinterlegt"}
                         </p>
                       )}
                     </div>
-
                     <div className="flex gap-1">
                       <button
                         type="button"
                         onClick={() => openEditModal(c)}
                         className="p-2 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200"
-                        title="Bearbeiten"
                       >
                         <Pencil size={14} />
                       </button>
@@ -212,7 +189,6 @@ export default function ProfileChildren({
                         type="button"
                         onClick={() => setChildToDelete(c)}
                         className="p-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100"
-                        title="Löschen"
                       >
                         <Trash2 size={14} />
                       </button>
@@ -225,7 +201,6 @@ export default function ProfileChildren({
         </div>
       )}
 
-      {/* MODAL: CHILD EDIT / CREATE */}
       {editingChild && (
         <ProfileChildModal
           initialChild={editingChild}
@@ -235,16 +210,12 @@ export default function ProfileChildren({
         />
       )}
 
-      {/* MODAL: DELETE CONFIRM */}
       {childToDelete && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl border border-stone-200 space-y-4">
-            <h3 className="text-sm font-bold text-stone-800 mb-1">
-              Kind löschen?
-            </h3>
+            <h3 className="text-sm font-bold text-stone-800 mb-1">Kind löschen?</h3>
             <p className="text-sm text-stone-600">
-              Möchtest du <strong>{childToDelete.name}</strong> wirklich aus deinem Profil entfernen?
-              Diese Aktion kann nicht rückgängig gemacht werden.
+              Möchtest du <strong>{childToDelete.name}</strong> wirklich entfernen?
             </p>
             <div className="flex gap-2 pt-2">
               <button

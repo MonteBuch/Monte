@@ -1,10 +1,9 @@
-// src/components/absence/AbsenceReport.jsx
 import React, { useState, useEffect } from "react";
 import { Trash2, Pencil } from "lucide-react";
 import AbsenceBanner from "./AbsenceBanner";
 import AbsenceEditor from "./AbsenceEditor";
-import { GROUPS } from "../../lib/constants";
 import { StorageService } from "../../lib/storage";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -64,6 +63,9 @@ function getReasonMeta(reason) {
 export default function AbsenceReport({ user }) {
   const children = Array.isArray(user.children) ? user.children : [];
 
+  const facility = StorageService.getFacilitySettings();
+  const groups = facility?.groups || [];
+
   const [activeChildId, setActiveChildId] = useState(
     children.length > 0 ? children[0].id : null
   );
@@ -116,7 +118,7 @@ export default function AbsenceReport({ user }) {
     );
   }
 
-  const childGroup = GROUPS.find((g) => g.id === child.group);
+  const childGroup = getGroupStyles(getGroupById(groups, child.group));
 
   return (
     <div className="space-y-5">
@@ -126,7 +128,9 @@ export default function AbsenceReport({ user }) {
       {children.length > 1 && (
         <div className="flex gap-2 overflow-x-auto pb-1">
           {children.map((c) => {
-            const group = GROUPS.find((g) => g.id === c.group);
+            const groupStyles = getGroupStyles(
+              getGroupById(groups, c.group)
+            );
             const active = c.id === activeChildId;
 
             return (
@@ -138,11 +142,11 @@ export default function AbsenceReport({ user }) {
                 }}
                 className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-bold transition whitespace-nowrap ${
                   active
-                    ? `${group?.color || "bg-amber-500"} border-transparent text-white`
+                    ? `${groupStyles.chipClass} border-transparent text-white`
                     : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
                 }`}
               >
-                {group?.icon}
+                <groupStyles.Icon size={14} />
                 <span>{c.name}</span>
               </button>
             );
@@ -171,7 +175,9 @@ export default function AbsenceReport({ user }) {
           entries
             .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
             .map((e) => {
-              const group = GROUPS.find((g) => g.id === e.groupId) || childGroup;
+              const groupStyles = getGroupStyles(
+                getGroupById(groups, e.groupId)
+              );
               const reasonMeta = getReasonMeta(e.reason);
               const submittedAt = new Date(e.createdAt).toLocaleString("de-DE");
 
@@ -206,12 +212,12 @@ export default function AbsenceReport({ user }) {
                     </div>
 
                     <div className="flex flex-col items-end gap-2">
-                      {group && (
+                      {groupStyles && (
                         <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${group.color}`}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${groupStyles.chipClass}`}
                         >
-                          {group.icon}
-                          <span>{group.name}</span>
+                          <groupStyles.Icon size={12} />
+                          <span>{groupStyles.name}</span>
                         </span>
                       )}
 

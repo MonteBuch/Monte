@@ -1,4 +1,3 @@
-// src/components/AuthScreen.jsx
 import React, { useState } from "react";
 import {
   Sprout,
@@ -13,11 +12,11 @@ import {
 } from "lucide-react";
 import { StorageService } from "../../lib/storage";
 import {
-  GROUPS,
   DEFAULT_PARENT_CODE,
   DEFAULT_TEAM_CODE,
   DEFAULT_ADMIN_CODE,
 } from "../../lib/constants";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 export default function AuthScreen({ onLogin }) {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -31,11 +30,16 @@ export default function AuthScreen({ onLogin }) {
   const [teamCode, setTeamCode] = useState("");
   const [adminCode, setAdminCode] = useState("");
 
+  const facility = StorageService.getFacilitySettings();
+  const groups = facility?.groups || [];
+
+  const defaultGroupId = groups[0]?.id || null;
+
   const [children, setChildren] = useState([
     {
       id: crypto.randomUUID(),
       name: "",
-      group: "erde",
+      group: defaultGroupId,
       birthday: "",
       notes: "",
     },
@@ -44,7 +48,6 @@ export default function AuthScreen({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const facility = StorageService.getFacilitySettings();
   const expectedParentCode = facility.codes.parent || DEFAULT_PARENT_CODE;
   const expectedTeamCode = facility.codes.team || DEFAULT_TEAM_CODE;
   const expectedAdminCode = facility.codes.admin || DEFAULT_ADMIN_CODE;
@@ -55,7 +58,7 @@ export default function AuthScreen({ onLogin }) {
       {
         id: crypto.randomUUID(),
         name: "",
-        group: "erde",
+        group: defaultGroupId,
         birthday: "",
         notes: "",
       },
@@ -68,9 +71,7 @@ export default function AuthScreen({ onLogin }) {
 
   const handleChildChange = (index, field, value) => {
     setChildren((prev) =>
-      prev.map((c, i) =>
-        i === index ? { ...c, [field]: value } : c
-      )
+      prev.map((c, i) => (i === index ? { ...c, [field]: value } : c))
     );
   };
 
@@ -110,37 +111,34 @@ export default function AuthScreen({ onLogin }) {
           role,
           children: role === "parent" ? children : [],
           primaryGroup:
-            role === "team" || role === "admin" ? "erde" : null,
+            role === "team" || role === "admin" ? defaultGroupId : null,
         };
 
         StorageService.add("users", newUser);
         onLogin(newUser);
       } else {
-// LOGIN
-const allUsers = StorageService.get("users") || [];
-const found = allUsers.find(
-  (u) => u.username.toLowerCase() === username.toLowerCase()
-);
+        const allUsers = StorageService.get("users") || [];
+        const found = allUsers.find(
+          (u) => u.username.toLowerCase() === username.toLowerCase()
+        );
 
-if (!found) {
-  throw new Error("Ungültige Zugangsdaten.");
-}
+        if (!found) {
+          throw new Error("Ungültige Zugangsdaten.");
+        }
 
-// Passwort-Reset aktiv → Passwort NICHT prüfen
-if (found.mustResetPassword) {
-  onLogin({
-    ...found,
-    forceReset: true, // Signal an App.jsx, ForceReset-Screen anzeigen
-  });
-  return;
-}
+        if (found.mustResetPassword) {
+          onLogin({
+            ...found,
+            forceReset: true,
+          });
+          return;
+        }
 
-// Kein Reset → Passwort normal prüfen
-if (found.password !== password) {
-  throw new Error("Ungültige Zugangsdaten.");
-}
+        if (found.password !== password) {
+          throw new Error("Ungültige Zugangsdaten.");
+        }
 
-onLogin(found);
+        onLogin(found);
       }
     } catch (err) {
       setError(err.message);
@@ -160,9 +158,7 @@ onLogin(found);
           <h1 className="text-2xl font-bold text-stone-800">
             Montessori Kinderhaus
           </h1>
-          <p className="text-stone-500 text-sm italic mt-1">
-            Berlin-Buch
-          </p>
+          <p className="text-stone-500 text-sm italic mt-1">Berlin-Buch</p>
         </div>
 
         <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-stone-100">
@@ -283,7 +279,7 @@ onLogin(found);
                   </div>
                 )}
 
-                {/* KINDER nur bei Eltern */}
+                {/* KINDER */}
                 {role === "parent" && (
                   <>
                     <label className="block text-xs font-bold text-stone-400 uppercase mt-4 mb-1">
@@ -291,7 +287,9 @@ onLogin(found);
                     </label>
 
                     {children.map((child, index) => {
-                      const groupObj = GROUPS.find((g) => g.id === child.group);
+                      const groupStyles = getGroupStyles(
+                        getGroupById(groups, child.group)
+                      );
 
                       return (
                         <div
@@ -308,7 +306,6 @@ onLogin(found);
                             </button>
                           )}
 
-                          {/* Name */}
                           <input
                             required
                             type="text"
@@ -322,22 +319,26 @@ onLogin(found);
 
                           {/* Gruppe */}
                           <div className="grid grid-cols-2 gap-2">
-                            {GROUPS.map((g) => (
-                              <button
-                                type="button"
-                                key={g.id}
-                                onClick={() =>
-                                  handleChildChange(index, "group", g.id)
-                                }
-                                className={`p-2 rounded-lg text-xs flex items-center justify-center gap-1 border ${
-                                  child.group === g.id
-                                    ? `${g.color} border-transparent shadow-sm`
-                                    : "bg-white border-stone-200 text-stone-500 hover:bg-stone-100"
-                                }`}
-                              >
-                                {g.icon} {g.name}
-                              </button>
-                            ))}
+                            {groups.map((g) => {
+                              const styles = getGroupStyles(g);
+
+                              return (
+                                <button
+                                  type="button"
+                                  key={g.id}
+                                  onClick={() =>
+                                    handleChildChange(index, "group", g.id)
+                                  }
+                                  className={`p-2 rounded-lg text-xs flex items-center justify-center gap-1 border ${
+                                    child.group === g.id
+                                      ? `${styles.chipClass} border-transparent shadow-sm`
+                                      : "bg-white border-stone-200 text-stone-500 hover:bg-stone-100"
+                                  }`}
+                                >
+                                  <styles.Icon size={12} /> {styles.name}
+                                </button>
+                              );
+                            })}
                           </div>
 
                           {/* Geburtstag */}
@@ -349,7 +350,11 @@ onLogin(found);
                               type="date"
                               value={child.birthday || ""}
                               onChange={(e) =>
-                                handleChildChange(index, "birthday", e.target.value)
+                                handleChildChange(
+                                  index,
+                                  "birthday",
+                                  e.target.value
+                                )
                               }
                               className="w-full p-2 bg-white rounded-lg border border-stone-200 text-sm"
                             />
@@ -358,13 +363,18 @@ onLogin(found);
                           {/* Hinweise */}
                           <div>
                             <label className="block text-xs text-stone-500 mb-1 flex items-center gap-1">
-                              <StickyNote size={12} /> Hinweise / Allergien (optional)
+                              <StickyNote size={12} /> Hinweise / Allergien
+                              (optional)
                             </label>
                             <textarea
                               rows={2}
                               value={child.notes || ""}
                               onChange={(e) =>
-                                handleChildChange(index, "notes", e.target.value)
+                                handleChildChange(
+                                  index,
+                                  "notes",
+                                  e.target.value
+                                )
                               }
                               className="w-full p-2 bg-white rounded-lg border border-stone-200 text-sm resize-none"
                               placeholder="Allergien oder Hinweise"
@@ -415,7 +425,6 @@ onLogin(found);
               </div>
             </div>
 
-            {/* ERROR */}
             {error && (
               <div className="bg-red-50 p-3 rounded-xl flex items-start gap-2 text-red-600 text-xs">
                 <AlertTriangle size={16} className="mt-0.5" />
@@ -423,7 +432,6 @@ onLogin(found);
               </div>
             )}
 
-            {/* BUTTON */}
             <button
               disabled={loading}
               type="submit"

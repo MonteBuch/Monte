@@ -3,8 +3,8 @@ import {
   DEFAULT_PARENT_CODE,
   DEFAULT_TEAM_CODE,
   DEFAULT_ADMIN_CODE,
-  GROUPS,
-} from "./constants";
+  GROUPS, 
+} from "./constants.jsx";
 
 const PREFIX = "montessori_kita";
 
@@ -67,31 +67,31 @@ export const StorageService = {
     }
   },
 
-  // ---- News / spätere Features ----
-  // (bewusst generisch gelassen; News selbst liegen in "news")
-
-  // ---- Abwesenheiten ----
-  getAbsences() {
-    return this.get("absences");
-  },
-  saveAbsences(list) {
-    this.set("absences", list);
+  // ---- GRUPPEN (Zentralisiert) ----
+  getGroups() {
+    const facility = this.getFacilitySettings();
+    if (facility && facility.groups && facility.groups.length > 0) {
+      return facility.groups;
+    }
+    return GROUPS; 
   },
 
-  // ---- Speiseplan ----
-  getMealPlan() {
-    return this.get("mealplan");
-  },
-  saveMealPlan(plan) {
-    this.set("mealplan", plan);
-  },
-
-  // ---- Default-Gruppenbasis ----
-  getDefaultGroups() {
-    return GROUPS;
+  saveGroups(newGroups) {
+    const facility = this.getFacilitySettings();
+    this.saveFacilitySettings({
+      ...facility,
+      groups: newGroups
+    });
   },
 
-  // ---- Einrichtungs-Einstellungen (Name, Codes, Gruppen etc.) ----
+  getAbsences() { return this.get("absences"); },
+  saveAbsences(list) { this.set("absences", list); },
+
+  getMealPlan() { return this.get("mealplan"); },
+  saveMealPlan(plan) { this.set("mealplan", plan); },
+
+  getDefaultGroups() { return GROUPS; },
+
   getFacilitySettings() {
     const defaults = {
       name: "Montessori Kinderhaus",
@@ -137,13 +137,8 @@ export const StorageService = {
     safeSet(key("facility_settings"), merged);
   },
 
-  // ---- Komplettes Reset ----
   resetSystem() {
-    if (
-      confirm(
-        "ACHTUNG: Alle Benutzer, Listen, Meldungen und Einstellungen werden gelöscht. Fortfahren?"
-      )
-    ) {
+    if (confirm("ACHTUNG: Reset?")) {
       localStorage.clear();
       window.location.reload();
     }

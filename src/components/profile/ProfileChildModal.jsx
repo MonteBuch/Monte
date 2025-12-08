@@ -1,16 +1,18 @@
 // src/components/profile/ProfileChildModal.jsx
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { GROUPS } from "../../lib/constants";
+import { StorageService } from "../../lib/storage";
 
 export default function ProfileChildModal({
   initialChild,
-  mode = "create", // "create" | "edit"
+  mode = "create",
   onCancel,
   onSave,
 }) {
+  const allGroups = StorageService.getGroups();
+
   const [name, setName] = useState("");
-  const [group, setGroup] = useState(GROUPS[0]?.id || "erde");
+  const [group, setGroup] = useState(allGroups[0]?.id || "erde");
   const [birthday, setBirthday] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
@@ -18,7 +20,8 @@ export default function ProfileChildModal({
   useEffect(() => {
     if (!initialChild) return;
     setName(initialChild.name || "");
-    setGroup(initialChild.group || GROUPS[0]?.id || "erde");
+    const existingGroup = allGroups.find(g => g.id === initialChild.group);
+    setGroup(existingGroup ? initialChild.group : (allGroups[0]?.id || "erde"));
     setBirthday(initialChild.birthday || "");
     setNotes(initialChild.notes || "");
   }, [initialChild]);
@@ -31,7 +34,6 @@ export default function ProfileChildModal({
       setError("Bitte einen Namen eingeben.");
       return;
     }
-
     if (!group) {
       setError("Bitte eine Gruppe auswählen.");
       return;
@@ -55,20 +57,14 @@ export default function ProfileChildModal({
           <h3 className="text-sm font-bold text-stone-800">
             {mode === "edit" ? "Kind bearbeiten" : "Kind hinzufügen"}
           </h3>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="p-1 rounded-lg hover:bg-stone-100 text-stone-400"
-          >
+          <button type="button" onClick={onCancel} className="p-1 rounded-lg hover:bg-stone-100 text-stone-400">
             <X size={18} />
           </button>
         </div>
 
         <form className="space-y-3" onSubmit={handleSubmit}>
           <div>
-            <label className="block text-xs text-stone-500 mb-1">
-              Name
-            </label>
+            <label className="block text-xs text-stone-500 mb-1">Name</label>
             <input
               type="text"
               value={name}
@@ -79,18 +75,14 @@ export default function ProfileChildModal({
           </div>
 
           <div>
-            <label className="block text-xs text-stone-500 mb-1">
-              Gruppe
-            </label>
+            <label className="block text-xs text-stone-500 mb-1">Gruppe</label>
             <select
               value={group}
               onChange={(e) => setGroup(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
             >
-              {GROUPS.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
+              {allGroups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>
           </div>
@@ -99,12 +91,9 @@ export default function ProfileChildModal({
             <p className="text-[11px] font-semibold text-stone-500 uppercase tracking-wide mb-2">
               Optionale Angaben
             </p>
-
             <div className="space-y-3">
               <div>
-                <label className="block text-xs text-stone-500 mb-1">
-                  Geburtstag
-                </label>
+                <label className="block text-xs text-stone-500 mb-1">Geburtstag</label>
                 <input
                   type="date"
                   value={birthday || ""}
@@ -112,11 +101,8 @@ export default function ProfileChildModal({
                   className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
                 />
               </div>
-
               <div>
-                <label className="block text-xs text-stone-500 mb-1">
-                  Allergien / Hinweise
-                </label>
+                <label className="block text-xs text-stone-500 mb-1">Allergien / Hinweise</label>
                 <textarea
                   rows={2}
                   value={notes || ""}
@@ -128,11 +114,7 @@ export default function ProfileChildModal({
             </div>
           </div>
 
-          {error && (
-            <div className="text-xs text-red-600 bg-red-50 p-2 rounded-xl">
-              {error}
-            </div>
-          )}
+          {error && <div className="text-xs text-red-600 bg-red-50 p-2 rounded-xl">{error}</div>}
 
           <div className="flex gap-2 pt-2">
             <button
