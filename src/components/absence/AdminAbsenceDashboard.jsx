@@ -1,10 +1,8 @@
-// src/components/absence/AdminAbsenceDashboard.jsx
 import React, { useEffect, useState, useMemo } from "react";
 import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 import { CheckCircle, Undo2, Trash2, CalendarDays } from "lucide-react";
 
-// Grundfarben – TERMIN & URLAUB getauscht
 const REASON_STYLES = {
   krankheit: "bg-amber-100 text-amber-900",
   termin: "bg-emerald-100 text-emerald-900",
@@ -14,35 +12,16 @@ const REASON_STYLES = {
 
 export default function AdminAbsenceDashboard({ user }) {
   const facility = StorageService.getFacilitySettings();
-
-  // ✅ EVENT HIER GLOBAL ENTFERNT
   const groups = (facility?.groups || []).filter((g) => g.id !== "event");
 
-  const [groupId, setGroupId] = useState(
-    user.primaryGroup || groups[0]?.id
-  );
+  const [groupId, setGroupId] = useState(user.primaryGroup || groups[0]?.id);
   const [activeTab, setActiveTab] = useState("new");
   const [entries, setEntries] = useState([]);
 
   const load = () => {
     const all = StorageService.get("absences") || [];
-
-    const filtered = all
-      .filter((e) => e.groupId === groupId)
-      .filter((e) => e.groupId !== "event"); // ✅ EVENT-MELDUNGEN RAUS
-
-    const cleaned = filtered.filter((e) => {
-      if (e.status !== "read") return true;
-      const end = e.type === "range" ? e.dateTo : e.dateFrom;
-      return new Date(end) >= new Date();
-    });
-
-    if (cleaned.length !== filtered.length) {
-      const rest = all.filter((e) => e.groupId !== groupId);
-      StorageService.set("absences", [...rest, ...cleaned]);
-    }
-
-    setEntries(cleaned);
+    const filtered = all.filter((e) => e.groupId === groupId);
+    setEntries(filtered);
   };
 
   useEffect(() => {
@@ -92,6 +71,16 @@ export default function AdminAbsenceDashboard({ user }) {
     () => getGroupStyles(currentGroupRaw),
     [currentGroupRaw]
   );
+
+  const unreadCountByGroup = useMemo(() => {
+    const all = StorageService.get("absences") || [];
+    return all.reduce((acc, e) => {
+      if (e.groupId === "event") return acc;
+      if (e.status !== "new") return acc;
+      acc[e.groupId] = (acc[e.groupId] || 0) + 1;
+      return acc;
+    }, {});
+  }, [entries]);
 
   function formatDate(iso) {
     return new Date(iso).toLocaleDateString("de-DE");
@@ -170,7 +159,7 @@ export default function AdminAbsenceDashboard({ user }) {
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
+      {/* ✅ NUR DER HEADER (KEIN EXTRA „ABWESENHEITEN“) */}
       <div
         className="p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3"
         style={{ backgroundColor: currentGroup?.headerColor }}
@@ -181,25 +170,27 @@ export default function AdminAbsenceDashboard({ user }) {
           >
             {currentGroup && <currentGroup.Icon size={20} />}
           </div>
+
           <div>
-            <h2 className="text-xl font-bold text-stone-800">Meldungen</h2>
+            <h2 className="text-lg font-bold text-stone-800">Meldungen</h2>
             <p className="text-xs text-stone-600">
               Abwesenheiten der Gruppe {currentGroup?.name}
             </p>
           </div>
         </div>
 
-        {/* ✅ CHIP-Auswahl OHNE EVENT */}
+        {/* ✅ CHIP-LEISTE MIT BADGES (NICHT MEHR ABGESCHNITTEN) */}
         <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
           {groups.map((g) => {
             const styles = getGroupStyles(g);
             const active = g.id === groupId;
+            const unread = unreadCountByGroup[g.id] || 0;
 
             return (
               <button
                 key={g.id}
                 onClick={() => setGroupId(g.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-bold whitespace-nowrap transition ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold whitespace-nowrap transition ${
                   active
                     ? `${styles.chipClass} border-transparent text-white`
                     : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
@@ -207,6 +198,12 @@ export default function AdminAbsenceDashboard({ user }) {
               >
                 <styles.Icon size={14} />
                 <span>{styles.name}</span>
+
+                {unread > 0 && (
+                  <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-[10px] font-bold flex items-center justify-center text-stone-900">
+                    {unread}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -238,6 +235,7 @@ export default function AdminAbsenceDashboard({ user }) {
         </button>
       </div>
 
+      {/* INHALT */}
       {activeTab === "new" && (
         <div className="space-y-3">
           {newEntries.length === 0 ? (
