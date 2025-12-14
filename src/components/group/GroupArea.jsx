@@ -1,6 +1,9 @@
-import React, { useEffect, useState, useMemo } from "react";
+// src/components/group/GroupArea.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
+import { fetchGroups } from "../../api/groupApi";
+import { fetchListsByGroup } from "../../api/listApi";
 
 import GroupChips from "./GroupChips";
 import ListCard from "./ListCard";
@@ -13,94 +16,177 @@ export default function GroupArea({ user }) {
 
   const realChildren = Array.isArray(user.children) ? user.children : [];
 
-  const facility = StorageService.getFacilitySettings();
-  const groups = facility?.groups || [];
-
-  // ✅ ALLE LISTEN GLOBAL LADEN (für Event-Sichtbarkeit)
-  const allLists = useMemo(() => {
-    return StorageService.get("grouplists") || [];
-  }, []);
-
-  // ✅ Gibt es mindestens eine aktive Event-Liste?
-  const hasActiveEventLists = useMemo(() => {
-    return allLists.some((l) => l.groupId === "event");
-  }, [allLists]);
-
-  // ✅ VIRTUELLES EVENT-KIND FÜR GROUPCHIPS
-  // ✅ UND: Event IMMER AUF POSITION 1
-  const children = useMemo(() => {
-    if (isStaff) return realChildren;
-
-    let base = [...realChildren];
-
-    if (hasActiveEventLists) {
-      base = [
-        {
-          id: "__event__",
-          name: "Event",
-          group: "event",
-        },
-        ...base, // ✅ Event immer vorne
-      ];
-    }
-
-    return base;
-  }, [realChildren, hasActiveEventLists, isStaff]);
-
-  // aktive Gruppe
-  const [activeGroup, setActiveGroup] = useState(() => {
-    if (isStaff) {
-      return user.primaryGroup || groups[0]?.id;
-    }
-
-    // ✅ Wenn Event sichtbar ist → automatisch vorausgewählt
-    if (hasActiveEventLists) {
-      return "event";
-    }
-
-    if (realChildren.length > 0) {
-      return realChildren[0].group;
-    }
-
-    return groups[0]?.id;
-  });
-
-  const [lists, setLists] = useState([]);
-
-  const visibleGroupIds = isStaff
-    ? groups.map((g) => g.id)
-    : [...new Set(children.map((c) => c.group))];
-
-  const childrenView = !isStaff && children.length > 1;
+  // ───────────────────────────────────────────────────────────────
+  // GRUPPEN (Supabase mit Fallback auf Facility)
+  // ───────────────────────────────────────────────────────────────
+  const [groups, setGroups] = useState([]);
 
   useEffect(() => {
-    if (!isStaff && hasActiveEventLists) {
-      setActiveGroup("event"); // ✅ Event bleibt aktiv
-    } else if (!isStaff && realChildren.length > 0) {
-      setActiveGroup(realChildren[0].group);
+    let cancelled = false;
+
+    async function loadGroups() {
+      try {
+        const supabaseGroups = await fetchGroups();
+        if (!cancelled && Array.isArray(supabaseGroups)) {
+          setGroups(supabaseGroups);
+          return;
+        }
+      } catch (e) {
+        console.warn(
+          "Supabase Gruppen nicht verfügbar – Fallback auf LocalStorage"
+        );
+      }
+
+      const facility = StorageService.getFacilitySettings();
+      const fallbackGroups = facility?.groups || [];
+      if (!cancelled) {
+        setGroups(fallbackGroups);
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasActiveEventLists]);
+
+    loadGroups();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ───────────────────────────────────────────────────────────────
+  // EVENT: gibt es irgendeine Liste in der Eventgruppe?
+  // ───────────────────────────────────────────────────────────────
+  const [hasEventLists, setHasEventLists] = useState(false);
+
+  useEffect(() => {
+    async function checkEventLists() {
+      const eventGroup = groups.find((g) => g.is_event_group);
+      if (!eventGroup) {
+        setHasEventLists(false);
+        return;
+      }
+
+      try {
+        const data = await fetchListsByGroup(eventGroup.id);
+        setHasEventLists(Array.isArray(data) && data.length > 0);
+      } catch {
+        setHasEventLists(false);
+      }
+    }
+
+    if (groups.length) checkEventLists();
+  }, [groups]);
+
+  // ───────────────────────────────────────────────────────────────
+  // AKTIVE GRUPPE
+  // ───────────────────────────────────────────────────────────────
+  const [activeGroup, setActiveGroup] = useState(null);
+
+  useEffect(() => {
+    if (!groups.length || activeGroup) return;
+
+    // STAFF: primaryGroup oder erste Gruppe
+    if (isStaff) {
+      const initial =
+        user?.primaryGroup || groups[0]?.id || groups[0]?.name || null;
+      if (initial) setActiveGroup(initial);
+      return;
+    }
+
+    // ELTERN: erste Kindergruppe (auf Supabase gemappt)
+    if (!isStaff && realChildren.length > 0) {
+      const firstChild = realChildren[0];
+      const supa = groups.find(
+        (g) =>
+          g.id === firstChild.group ||
+          g.name?.toLowerCase() === firstChild.group?.toLowerCase()
+      );
+      const initial = supa?.id || firstChild.group;
+      if (initial) setActiveGroup(initial);
+      return;
+    }
+
+    // Fallback
+    if (groups[0]?.id) {
+      setActiveGroup(groups[0].id);
+    }
+  }, [groups, isStaff, realChildren, user?.primaryGroup, activeGroup]);
+
+  // ───────────────────────────────────────────────────────────────
+  // LISTEN (Supabase, gruppenbasiert)
+  // ───────────────────────────────────────────────────────────────
+  const [lists, setLists] = useState([]);
+
+  const loadLists = async () => {
+    if (!activeGroup) return;
+    try {
+      const data = await fetchListsByGroup(activeGroup);
+      setLists(data || []);
+    } catch {
+      setLists([]);
+    }
+  };
 
   useEffect(() => {
     loadLists();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroup]);
 
-  const loadLists = () => {
-    const all = StorageService.get("grouplists") || [];
-    const filtered = all.filter((l) => l.groupId === activeGroup);
+  // ───────────────────────────────────────────────────────────────
+  // KINDER-SICHT (Eltern) inkl. optionalem Event-Chip
+  // ───────────────────────────────────────────────────────────────
+  const children = useMemo(() => {
+    if (isStaff) return realChildren;
 
-    filtered.sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
-    setLists(filtered);
-  };
+    // Kindergruppen auf Supabase-Gruppen-IDs mappen
+    let base = realChildren.map((child) => {
+      const supa = groups.find(
+        (g) =>
+          g.id === child.group ||
+          g.name?.toLowerCase() === child.group?.toLowerCase()
+      );
 
-  // ✅ Robuster Gruppen-Finder
+      return {
+        ...child,
+        group: supa?.id || child.group,
+      };
+    });
+
+    // Eventchip nur, wenn es Eventlisten gibt
+    if (hasEventLists) {
+      const eventGroup = groups.find((g) => g.is_event_group);
+      if (eventGroup) {
+        base = [
+          {
+            id: "__event__",
+            name: "Event",
+            group: eventGroup.id,
+          },
+          ...base,
+        ];
+      }
+    }
+
+    return base;
+  }, [realChildren, groups, hasEventLists, isStaff]);
+
+  // ───────────────────────────────────────────────────────────────
+  // SICHTBARE GRUPPEN FÜR CHIPS
+  // ───────────────────────────────────────────────────────────────
+  const visibleGroupIds = isStaff
+    ? groups.map((g) => g.id)
+    : [...new Set(children.map((c) => c.group))];
+
+  const childrenView = !isStaff && children.length > 1;
+
+  // ───────────────────────────────────────────────────────────────
+  // AKTUELLE GRUPPE (für Header/Styles)
+  // ───────────────────────────────────────────────────────────────
   const currentGroupRaw = useMemo(() => {
-    let grp = getGroupById(groups, activeGroup);
-    if (grp) return grp;
+    let grp =
+      groups.find((g) => g.id === activeGroup) ||
+      groups.find((g) => g.name === activeGroup) ||
+      groups.find((g) =>
+        g.name?.toLowerCase().includes(activeGroup?.toLowerCase())
+      );
 
-    grp = groups.find((g) => g.name === activeGroup);
     if (grp) return grp;
 
     const child = children.find(
@@ -128,6 +214,9 @@ export default function GroupArea({ user }) {
     [currentGroupRaw]
   );
 
+  // ───────────────────────────────────────────────────────────────
+  // RENDER
+  // ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {/* HEADER-KARTE */}
@@ -162,10 +251,11 @@ export default function GroupArea({ user }) {
           setActiveGroup={setActiveGroup}
           children={children}
           visibleGroupIds={visibleGroupIds}
+          groups={groups}
         />
       </div>
 
-      {/* LISTEN-ÜBERSICHT */}
+      {/* LISTEN */}
       <div className="space-y-3">
         {lists.length === 0 ? (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 text-center text-stone-500 text-sm">

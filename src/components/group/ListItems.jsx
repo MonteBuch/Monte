@@ -1,13 +1,15 @@
 // src/components/group/ListItems.jsx
 import React, { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient"; // ⬅️ NEU
+import { StorageService } from "../../lib/storage";   // bleibt für Namenslogik
 
 /**
  * ListItems:
- * - für "bring" und "duty"
- * - Eltern können übernehmen, abgeben, hinzufügen und eigene Einträge löschen
- * - Team = reine Anzeige
+ * - bring / duty
+ * - Eltern: übernehmen, abgeben, hinzufügen, eigene löschen
+ * - Admin: reine Anzeige
+ * - Supabase WRITE
  */
 export default function ListItems({
   list,
@@ -18,92 +20,90 @@ export default function ListItems({
 }) {
   const [newItem, setNewItem] = useState("");
 
+  // Nur für Anzeigezwecke weiter genutzt:
   const allUsers = StorageService.get("users") || [];
 
   const getChildNameForUserInGroup = (username, groupId) => {
     const u = allUsers.find((x) => x.username === username);
     if (!u || !Array.isArray(u.children)) return username;
+
     const child =
       u.children.find((c) => c.group === groupId) || u.children[0];
+
     return child?.name || username;
   };
 
-  /** Eltern übernehmen/eintragen */
-  const toggleAssign = (itemIndex) => {
+  // ────────────────────────────────────────────────
+  //  Supabase: gesamte Items-Liste aktualisieren
+  // ────────────────────────────────────────────────
+  const updateItems = async (newItems) => {
+    const { error } = await supabase
+      .from("group_lists")
+      .update({ items: newItems })
+      .eq("id", list.id);
+
+    if (error) {
+      console.error("Fehler beim Aktualisieren der Items:", error);
+      alert("Fehler beim Speichern.");
+      return;
+    }
+
+    reload();
+  };
+
+  // ────────────────────────────────────────────────
+  //  ÜBERNEHMEN / ABGEBEN
+  // ────────────────────────────────────────────────
+  const toggleAssign = async (itemIndex) => {
     if (isAdmin) return;
 
-    const all = StorageService.get("grouplists") || [];
-    const idx = all.findIndex((l) => l.id === list.id);
-    if (idx < 0) return;
-
-    const updated = [...all];
-    const li = { ...updated[idx] };
-    const items = [...li.items];
-
+    const items = [...list.items];
     const item = { ...items[itemIndex] };
     const me = user.username;
 
     item.assignedTo = item.assignedTo === me ? null : me;
+
     items[itemIndex] = item;
 
-    li.items = items;
-    updated[idx] = li;
-
-    StorageService.set("grouplists", updated);
-    reload();
+    await updateItems(items);
   };
 
-  /** Eltern können neue Einträge anlegen */
-  const addCustomItem = () => {
+  // ────────────────────────────────────────────────
+  //  NEUES ITEM
+  // ────────────────────────────────────────────────
+  const addCustomItem = async () => {
     if (isAdmin) return;
     if (!newItem.trim()) return;
 
-    const all = StorageService.get("grouplists") || [];
-    const idx = all.findIndex((l) => l.id === list.id);
-    if (idx < 0) return;
+    const items = [...list.items];
 
-    const updated = [...all];
-    const li = { ...updated[idx] };
-    const items = [...li.items];
-
-    // neuer Eintrag = automatisch übernommen
     items.push({
       label: newItem.trim(),
-      assignedTo: user.username,
+      assignedTo: user.username, // automatisch übernommen
       createdBy: user.username,
     });
 
-    li.items = items;
-    updated[idx] = li;
-
-    StorageService.set("grouplists", updated);
-
     setNewItem("");
-    reload();
+    await updateItems(items);
   };
 
-  /** Eltern dürfen nur eigene Custom-Einträge löschen */
-  const deleteItem = (itemIndex) => {
+  // ────────────────────────────────────────────────
+  //  ITEM LÖSCHEN (nur eigene)
+  // ────────────────────────────────────────────────
+  const deleteItem = async (itemIndex) => {
     const item = list.items[itemIndex];
+
     if (item.createdBy !== user.username) return;
 
-    const all = StorageService.get("grouplists") || [];
-    const idx = all.findIndex((l) => l.id === list.id);
-    if (idx < 0) return;
-
-    const updated = [...all];
-    const li = { ...updated[idx] };
-    const items = [...li.items];
-
+    const items = [...list.items];
     items.splice(itemIndex, 1);
 
-    li.items = items;
-    updated[idx] = li;
-
-    StorageService.set("grouplists", updated);
-    reload();
+    await updateItems(items);
   };
 
+  // ────────────────────────────────────────────────
+  //  RENDER
+  // ────────────────────────────────────────────────
   return (
     <div className="space-y-2">
       {/* ITEMS */}
@@ -135,37 +135,37 @@ export default function ListItems({
               <span className="flex-1">{item.label}</span>
 
               {/* RECHTE SEITE */}
-              <div className="flex items-center gap-2 text-[10px] text-stone-500">
-                {/* Status / Name */}
-                <span>{assignedName}</span>
+<div className="flex items-center gap-2 text-[10px] text-stone-500">
+  {/* Textanzeige: Du / Name des Kindes / nichts bei freien Einträgen */}
+  {assigned && (
+    <span>{assignedName}</span>
+  )}
 
-                {/* Eltern – übernehmen/abgeben */}
-                {!isAdmin && (
-                  <button
-                    onClick={() => toggleAssign(idx)}
-                    className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-100 text-[10px] font-bold"
-                  >
-                    {isMine ? "Abgeben" : "OK"}
-                  </button>
-                )}
+  {/* Eltern – übernehmen (frei) oder abgeben (eigener Eintrag) */}
+  {!isAdmin && (!assigned || assigned === user.username) && (
+    <button
+      onClick={() => toggleAssign(idx)}
+      className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-100 text-[10px] font-bold"
+    >
+      {assigned === user.username ? "Abgeben" : "Übernehmen"}
+    </button>
+  )}
 
-                {/* Eltern – eigene Items löschen */}
-                {!isAdmin && item.createdBy === user.username && (
-                  <button
-                    onClick={() => deleteItem(idx)}
-                    className="p-1 bg-red-50 text-red-500 rounded hover:bg-red-100"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </div>
+  {/* Eltern – eigene Items löschen */}
+  {!isAdmin && item.createdBy === user.username && (
+    <button
+      onClick={() => deleteItem(idx)}
+      className="p-1 bg-red-50 text-red-500 rounded hover:bg-red-100"
+    >
+      <Trash2 size={12} />
+    </button>
+  )}
+</div>
             </div>
           );
         })
       ) : (
-        <p className="text-xs text-stone-400 py-1">
-          Noch keine Einträge.
-        </p>
+        <p className="text-xs text-stone-400 py-1">Noch keine Einträge.</p>
       )}
 
       {/* NEUES ITEM (nur Eltern) */}

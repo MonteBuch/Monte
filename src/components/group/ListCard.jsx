@@ -3,11 +3,11 @@ import React from "react";
 import {
   Trash2,
   ClipboardList,
-  CheckSquare,
   ListChecks,
   BarChart,
 } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+
+import { supabase } from "../../api/supabaseClient";   // ⬅️ Neu
 import ListItems from "./ListItems";
 import ListPoll from "./ListPoll";
 
@@ -29,10 +29,24 @@ const LIST_META = {
 export default function ListCard({ list, isAdmin, user, group, reload }) {
   const meta = LIST_META[list.type] || LIST_META.bring;
 
-  const handleDeleteList = () => {
+  // ─────────────────────────────────────────────
+  // LISTE LÖSCHEN (Supabase)
+  // ─────────────────────────────────────────────
+  const handleDeleteList = async () => {
     if (!confirm("Liste wirklich löschen?")) return;
-    StorageService.delete("grouplists", list.id);
-    reload();
+
+    const { error } = await supabase
+      .from("group_lists")
+      .delete()
+      .eq("id", list.id);
+
+    if (error) {
+      console.error("Fehler beim Löschen der Liste:", error);
+      alert("Fehler beim Löschen der Liste.");
+      return;
+    }
+
+    reload(); // UI aktualisieren
   };
 
   return (

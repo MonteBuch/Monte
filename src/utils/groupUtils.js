@@ -146,7 +146,7 @@ export function getGroupStyles(group) {
   }
 
   // ✅ Event-Sonderfall: fester Pastell-Header + Regenbogenicon
-  if (group.id === "event" || group.special === "event") {
+  if (group.is_event_group === true) {
     return {
       id: group.id,
       name: group.name,

@@ -1,4 +1,5 @@
 // src/components/news/NewsCreate.jsx
+
 import React, { useState } from "react";
 import {
   Send,
@@ -23,7 +24,9 @@ import { Mark } from "@tiptap/core";
 
 import { getGroupStyles } from "../../utils/groupUtils";
 
-// Eigene Underline-Mark
+//
+// ⭐ INLINE CUSTOM UNDERLINE – vorhandene Logik aus deiner alten Datei!
+//
 const CustomUnderline = Mark.create({
   name: "customUnderline",
 
@@ -63,11 +66,8 @@ export default function NewsCreate({
       ? groups.find((g) => g.id === effectiveTarget)
       : null;
 
-  // ------------------------- Farblogik -------------------------
-  // Wir holen uns die Styles für die ausgewählte Gruppe
+  // Styles
   const styles = getGroupStyles(selectedGroup);
-
-  // Icon Hintergrund (Kräftige Farbe)
   const iconBg = selectedGroup
     ? styles.chipClass
     : "bg-stone-200 text-stone-700";
@@ -79,9 +79,11 @@ export default function NewsCreate({
       ? selectedGroup.name
       : "Alle";
 
-  // ------------------------- TIPTAP CONFIG -------------------------
   const [refresh, setRefresh] = useState(0);
 
+  //
+  // TIPTAP EDITOR
+  //
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -91,7 +93,7 @@ export default function NewsCreate({
           openOnClick: true,
         },
       }),
-      CustomUnderline,
+      CustomUnderline, // ⭐ wieder drin – exakt wie früher
       Image.configure({ inline: true }),
       Placeholder.configure({
         placeholder: "Kurze Info für Eltern oder Team...",
@@ -106,7 +108,9 @@ export default function NewsCreate({
     },
   });
 
-  // ------------------------- FORMAT COMMANDS -------------------------
+  //
+  // FORMAT COMMANDS
+  //
   const applyFormat = (command) => {
     if (!editor) return;
 
@@ -147,6 +151,9 @@ export default function NewsCreate({
   const isActive = (name, attrs = {}) =>
     editor ? editor.isActive(name, attrs) : false;
 
+  //
+  // IMAGE EMBED
+  //
   const handleImageFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file || !editor) return;
@@ -158,15 +165,20 @@ export default function NewsCreate({
     e.target.value = "";
   };
 
+  //
+  // FILE ATTACHMENTS → werden später in Supabase hochgeladen
+  //
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
+
     const mapped = files.map((file) => ({
       name: file.name,
       size: file.size,
       type: file.type,
-      data: URL.createObjectURL(file),
+      file, // wichtig für Supabase Storage
     }));
+
     setAttachments((prev) => [...prev, ...mapped]);
     e.target.value = "";
   };
@@ -175,8 +187,12 @@ export default function NewsCreate({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
+  //
+  // SUBMIT
+  //
   const handleSubmit = () => {
     if (!editor) return;
+
     const html = editor.getHTML();
     const plain = editor.getText().trim();
     if (!plain) return;
@@ -192,23 +208,27 @@ export default function NewsCreate({
     };
 
     onSubmit(newItem);
+
     editor.commands.setContent("");
     setAttachments([]);
   };
 
-  // ------------------------- UI -------------------------
+  //
+  // UI – unverändert
+  //
   return (
     <div className="space-y-4">
-      {/* HEADER - Jetzt mit Inline Style für exakte Farbe */}
-      <div 
+
+      {/* HEADER */}
+      <div
         className="p-5 rounded-3xl border shadow-sm text-stone-800 transition-colors duration-300"
         style={{ backgroundColor: styles.headerColor }}
       >
         <div className="flex items-center gap-3">
           <div className={`${iconBg} p-2 rounded-2xl shadow transition-colors duration-300`}>
-            {/* Icon dynamisch rendern */}
             <styles.Icon size={18} />
           </div>
+
           <div>
             <h3 className="text-lg font-bold">News</h3>
             <p className="text-xs opacity-80">Neue Mitteilung an Eltern senden</p>
@@ -229,32 +249,32 @@ export default function NewsCreate({
           </button>
 
           {groups
-  .filter((g) => g.id !== "event")
-  .map((g) => {
-    const btnStyles = getGroupStyles(g);
-    const isActive = effectiveTarget === g.id;
+            .filter((g) => g.id !== "event")
+            .map((g) => {
+              const btnStyles = getGroupStyles(g);
+              const isActive = effectiveTarget === g.id;
 
-    return (
-      <button
-        key={g.id}
-        onClick={() => onGroupChange(g.id)}
-        className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1 transition-all ${
-          isActive
-            ? `${btnStyles.chipClass} border-transparent shadow-sm`
-            : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
-        }`}
-      >
-        {isActive && <btnStyles.Icon size={12} />}
-        {g.name}
-      </button>
-    );
-  })}
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => onGroupChange(g.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1 transition-all ${
+                    isActive
+                      ? `${btnStyles.chipClass} border-transparent shadow-sm`
+                      : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
+                  }`}
+                >
+                  {isActive && <btnStyles.Icon size={12} />}
+                  {g.name}
+                </button>
+              );
+            })}
         </div>
       </div>
 
       {/* EDITOR */}
       <div className="rounded-2xl border border-stone-300 bg-white overflow-hidden shadow-sm">
-        {/* TOOLBAR */}
+        {/* Toolbar */}
         {editor && (
           <div className="flex items-center gap-1 px-3 py-2 border-b bg-stone-50">
             <button onClick={() => applyFormat("bold")} className={`p-1.5 rounded-md hover:bg-stone-200 ${isActive("bold") ? "bg-stone-300" : ""}`}><Bold size={16} /></button>
@@ -264,10 +284,22 @@ export default function NewsCreate({
             <button onClick={() => applyFormat("bulletList")} className={`p-1.5 rounded-md hover:bg-stone-200 ${isActive("bulletList") ? "bg-stone-300" : ""}`}><ListIcon size={16} /></button>
             <button onClick={() => applyFormat("orderedList")} className={`p-1.5 rounded-md hover:bg-stone-200 ${isActive("orderedList") ? "bg-stone-300" : ""}`}><ListOrdered size={16} /></button>
             <button onClick={() => applyFormat("heading")} className={`p-1.5 rounded-md hover:bg-stone-200 ${isActive("heading", { level: 2 }) ? "bg-stone-300" : ""}`}><TypeIcon size={16} /></button>
-            <label className="p-1.5 rounded-md hover:bg-stone-200 cursor-pointer"><ImageIcon size={16} /><input type="file" accept="image/*" className="hidden" onChange={handleImageFileChange} /></label>
-            <button onClick={() => applyFormat("hr")} className="p-1.5 rounded-md hover:bg-stone-200"><MinusIcon size={16} /></button>
+
+            <label className="p-1.5 rounded-md hover:bg-stone-200 cursor-pointer">
+              <ImageIcon size={16} />
+              <input type="file" accept="image/*" className="hidden" onChange={handleImageFileChange} />
+            </label>
+
+            <button onClick={() => applyFormat("hr")} className="p-1.5 rounded-md hover:bg-stone-200">
+              <MinusIcon size={16} />
+            </button>
+
             <div className="flex-1" />
-            <label className="p-1.5 rounded-md hover:bg-stone-200 cursor-pointer"><Paperclip size={16} /><input type="file" multiple className="hidden" onChange={handleFileChange} /></label>
+
+            <label className="p-1.5 rounded-md hover:bg-stone-200 cursor-pointer">
+              <Paperclip size={16} />
+              <input type="file" multiple className="hidden" onChange={handleFileChange} />
+            </label>
           </div>
         )}
 
@@ -278,7 +310,7 @@ export default function NewsCreate({
         />
       </div>
 
-      {/* ATTACHMENT LIST */}
+      {/* ATTACHMENTS */}
       {attachments.length > 0 && (
         <div className="space-y-1 text-xs">
           {attachments.map((att, idx) => (
@@ -298,7 +330,7 @@ export default function NewsCreate({
         </div>
       )}
 
-      {/* SEND BUTTON */}
+      {/* SEND */}
       <button
         onClick={handleSubmit}
         className="w-full py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 active:scale-95 flex items-center justify-center gap-2 text-sm shadow-md transition-transform"

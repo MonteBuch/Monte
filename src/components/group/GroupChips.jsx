@@ -1,14 +1,13 @@
 // src/components/group/GroupChips.jsx
 import React from "react";
 import { Globe } from "lucide-react";
-import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 /**
  * GroupChips:
  *
- * - TEAM: Zeigt alle Gruppen als Chips
- * - ELTERN: Zeigt Kinder als Chips (mit Gruppe jeweils darin)
+ * - TEAM / ADMIN: Zeigt ALLE Supabase-Gruppen als Chips
+ * - ELTERN: Zeigt Kinder als Chips (wie bisher)
  */
 export default function GroupChips({
   isAdmin,
@@ -16,17 +15,15 @@ export default function GroupChips({
   setActiveGroup,
   children,
   visibleGroupIds,
+  groups, // ✅ kommen jetzt DIREKT aus GroupArea (Supabase)
 }) {
-  const facility = StorageService.getFacilitySettings();
-  const groups = facility?.groups || [];
-
   // ───────────────────────────────────────────────────────────────
-  // TEAM-ANSICHT
+  // TEAM / ADMIN → ALLE SUPABASE-GRUPPEN
   // ───────────────────────────────────────────────────────────────
   if (isAdmin) {
-    const visibleGroups = groups.filter((g) =>
-      visibleGroupIds?.includes(g.id)
-    );
+    const visibleGroups = Array.isArray(groups)
+      ? groups.filter((g) => visibleGroupIds?.includes(g.id))
+      : [];
 
     return (
       <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -57,7 +54,7 @@ export default function GroupChips({
   }
 
   // ───────────────────────────────────────────────────────────────
-  // ELTERN-ANSICHT (mehrere Kinder)
+  // ELTERN → KINDER ALS CHIPS (Gruppe wird über Supabase gematcht)
   // ───────────────────────────────────────────────────────────────
   if (!isAdmin && children?.length > 1) {
     return (
@@ -91,8 +88,5 @@ export default function GroupChips({
     );
   }
 
-  // ───────────────────────────────────────────────────────────────
-  // ELTERN mit nur einem Kind → keine Chips nötig
-  // ───────────────────────────────────────────────────────────────
   return null;
 }

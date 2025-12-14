@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useEffect, useState } from "react";
+import { fetchGroups } from "./api/groupApi";
 import {
   Home,
   Users,
@@ -153,8 +154,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [pendingResetUser, setPendingResetUser] = useState(null);
   const [activeTab, setActiveTab] = useState("news");
-
-  // Unteransicht im Profil-Tab: home | children | notifications | facility | security
+   // Unteransicht im Profil-Tab: home | children | notifications | facility | security
   const [profileView, setProfileView] = useState("home");
 
   // Session beim Start wiederherstellen

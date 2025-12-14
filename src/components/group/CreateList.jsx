@@ -1,7 +1,7 @@
 // src/components/group/CreateList.jsx
 import React, { useState } from "react";
 import { Plus } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient";
 
 export default function CreateList({ activeGroup, reload }) {
   const [show, setShow] = useState(false);
@@ -9,8 +9,8 @@ export default function CreateList({ activeGroup, reload }) {
   const [type, setType] = useState("bring"); // bring | duty | poll
   const [itemsText, setItemsText] = useState("");
 
-  const create = () => {
-    if (!title.trim()) return;
+  const create = async () => {
+    if (!title.trim() || !activeGroup) return;
 
     const formattedItems = itemsText
       .split("\n")
@@ -26,14 +26,19 @@ export default function CreateList({ activeGroup, reload }) {
       id: crypto.randomUUID(),
       title: title.trim(),
       type,
-      groupId: activeGroup,
+      group_id: activeGroup,
       items: formattedItems,
-      createdAt: new Date().toISOString(),
+      created_at: new Date().toISOString(),
     };
 
-    StorageService.add("grouplists", payload);
+    const { error } = await supabase.from("group_lists").insert(payload);
 
-    // reset
+    if (error) {
+      console.error("Fehler beim Speichern der Liste:", error);
+      return;
+    }
+
+    // reset (unverändert)
     setShow(false);
     setTitle("");
     setItemsText("");
