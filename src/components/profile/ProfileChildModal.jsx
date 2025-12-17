@@ -1,18 +1,16 @@
 // src/components/profile/ProfileChildModal.jsx
 import React, { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { StorageService } from "../../lib/storage";
 
 export default function ProfileChildModal({
   initialChild,
+  groups = [],
   mode = "create",
   onCancel,
   onSave,
 }) {
-  const allGroups = StorageService.getGroups();
-
   const [name, setName] = useState("");
-  const [group, setGroup] = useState(allGroups[0]?.id || "erde");
+  const [group, setGroup] = useState(groups[0]?.id || "");
   const [birthday, setBirthday] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
@@ -20,11 +18,11 @@ export default function ProfileChildModal({
   useEffect(() => {
     if (!initialChild) return;
     setName(initialChild.name || "");
-    const existingGroup = allGroups.find(g => g.id === initialChild.group);
-    setGroup(existingGroup ? initialChild.group : (allGroups[0]?.id || "erde"));
+    const existingGroup = groups.find(g => g.id === initialChild.group);
+    setGroup(existingGroup ? initialChild.group : (groups[0]?.id || ""));
     setBirthday(initialChild.birthday || "");
     setNotes(initialChild.notes || "");
-  }, [initialChild]);
+  }, [initialChild, groups]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -81,7 +79,7 @@ export default function ProfileChildModal({
               onChange={(e) => setGroup(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
             >
-              {allGroups.map((g) => (
+              {groups.map((g) => (
                 <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>

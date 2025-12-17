@@ -1,7 +1,8 @@
 // src/components/admin/AdminFacility.jsx
 import React, { useEffect, useState } from "react";
-import { MapPin, Phone, Mail, Clock, Info } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import { MapPin, Phone, Mail, Clock, Info, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import SaveButton from "../ui/SaveButton";
 
 export default function AdminFacility() {
@@ -10,29 +11,45 @@ export default function AdminFacility() {
     address: "",
     phone: "",
     email: "",
-    opening: "",
-    infoText: "",
+    opening_hours: "",
+    info_text: "",
   });
 
   const [initial, setInitial] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   /* -------------------------------------------------------------
-     Daten aus dem Storage laden
+     Daten aus Supabase laden
      ------------------------------------------------------------- */
   useEffect(() => {
-    const facility = StorageService.getFacilitySettings();
+    async function loadFacility() {
+      try {
+        const { data, error } = await supabase
+          .from("facilities")
+          .select("*")
+          .eq("id", FACILITY_ID)
+          .single();
 
-    const loaded = {
-      name: facility?.name || "",
-      address: facility?.address || "",
-      phone: facility?.phone || "",
-      email: facility?.email || "",
-      opening: facility?.opening || "",
-      infoText: facility?.infoText || "",
-    };
+        if (error) throw error;
 
-    setForm(loaded);
-    setInitial(loaded);
+        const loaded = {
+          name: data?.name || "",
+          address: data?.address || "",
+          phone: data?.phone || "",
+          email: data?.email || "",
+          opening_hours: data?.opening_hours || "",
+          info_text: data?.info_text || "",
+        };
+
+        setForm(loaded);
+        setInitial(loaded);
+      } catch (err) {
+        console.error("Facility laden fehlgeschlagen:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadFacility();
   }, []);
 
   const changed = JSON.stringify(form) !== JSON.stringify(initial);
@@ -48,32 +65,45 @@ export default function AdminFacility() {
   };
 
   /* -------------------------------------------------------------
-     Speichern – wichtig: facility-Objekt vollständig schreiben
+     Speichern in Supabase
      ------------------------------------------------------------- */
   const save = async () => {
-    const oldData = StorageService.getFacilitySettings() || {};
+    try {
+      const updated = {
+        name: form.name.trim(),
+        address: form.address.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        opening_hours: form.opening_hours.trim(),
+        info_text: form.info_text.trim(),
+      };
 
-    const updated = {
-      ...oldData,
+      const { error } = await supabase
+        .from("facilities")
+        .update(updated)
+        .eq("id", FACILITY_ID);
 
-      // Diese Felder machen die Einrichtungsinfo aus
-      name: form.name.trim(),
-      address: form.address.trim(),
-      phone: form.phone.trim(),
-      email: form.email.trim(),
-      opening: form.opening.trim(),
-      infoText: form.infoText.trim(),
-    };
+      if (error) throw error;
 
-    StorageService.saveFacilitySettings(updated);
-
-    // Neue Initialwerte setzen
-    setInitial(updated);
+      // Neue Initialwerte setzen
+      setInitial({ ...form, ...updated });
+    } catch (err) {
+      console.error("Facility speichern fehlgeschlagen:", err);
+      alert("Fehler beim Speichern: " + err.message);
+    }
   };
 
   /* -------------------------------------------------------------
      UI
      ------------------------------------------------------------- */
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="text-lg font-bold text-stone-800">Einrichtungsinformationen</h2>
@@ -144,8 +174,8 @@ export default function AdminFacility() {
             Öffnungszeiten
           </label>
           <input
-            value={form.opening}
-            onChange={(e) => handleChange("opening", e.target.value)}
+            value={form.opening_hours}
+            onChange={(e) => handleChange("opening_hours", e.target.value)}
             className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm"
             placeholder="Mo–Fr 07:00–17:00"
           />
@@ -159,8 +189,8 @@ export default function AdminFacility() {
           </label>
           <textarea
             rows={4}
-            value={form.infoText}
-            onChange={(e) => handleChange("infoText", e.target.value)}
+            value={form.info_text}
+            onChange={(e) => handleChange("info_text", e.target.value)}
             className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl text-sm resize-none"
             placeholder="Wichtige Hinweise, z. B. zur Abwesenheitsmeldung"
           />

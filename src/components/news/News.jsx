@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../api/supabaseClient";
 import { fetchGroups } from "../../api/groupApi";
-import { StorageService } from "../../lib/storage";
 
 import NewsCreate from "./NewsCreate";
 import NewsFeed from "./NewsFeed";
@@ -19,24 +18,19 @@ export default function News({ user }) {
   });
   const [loading, setLoading] = useState(true);
 
-  // Gruppen: Supabase → Fallback LocalStorage (wie GroupArea)
+  // Gruppen aus Supabase laden
   useEffect(() => {
     let cancelled = false;
 
     async function loadGroups() {
       try {
         const supabaseGroups = await fetchGroups();
-        if (!cancelled && Array.isArray(supabaseGroups) && supabaseGroups.length > 0) {
+        if (!cancelled && Array.isArray(supabaseGroups)) {
           setGroups(supabaseGroups);
-          return;
         }
       } catch (e) {
-        console.warn("Supabase Gruppen nicht verfügbar – Fallback auf LocalStorage", e);
+        console.error("Gruppen laden fehlgeschlagen:", e);
       }
-
-      const facility = StorageService.getFacilitySettings();
-      const fallbackGroups = facility?.groups || [];
-      if (!cancelled) setGroups(fallbackGroups);
     }
 
     loadGroups();
@@ -73,7 +67,7 @@ export default function News({ user }) {
       const { data: hiddenRows, error: hiddenError } = await supabase
         .from("news_hidden")
         .select("news_id")
-        .eq("username", user.username);
+        .eq("user_id", user.id);
 
       if (hiddenError) {
         console.error("Fehler beim Laden der versteckten News:", hiddenError);
@@ -93,7 +87,7 @@ export default function News({ user }) {
   useEffect(() => {
     loadNews();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.username]);
+  }, [user.id]);
 
   // Attachments in Supabase Storage hochladen und Metadaten zurückgeben
   const uploadAttachments = async (newsId, attachments) => {
@@ -105,7 +99,7 @@ export default function News({ user }) {
       // att.file kommt aus NewsCreate
       if (!att.file) continue;
 
-      const path = `${user.username}/${newsId}/${att.name}`;
+      const path = `${user.id}/${newsId}/${att.name}`;
 
       const { error: uploadError } = await supabase.storage
         .from(NEWS_BUCKET)
@@ -149,7 +143,7 @@ export default function News({ user }) {
         group_id: draft.groupId || null,
         target: draft.target || (draft.groupId ? "group" : "all"),
         attachments: uploadedAttachments,
-        created_by: draft.createdBy || user.username,
+        created_by: draft.createdBy || user.id,
         facility_id: null, // optional, falls du später mehrere Einrichtungen trennst
       };
 
@@ -187,7 +181,7 @@ export default function News({ user }) {
       const payload = {
         id: crypto.randomUUID(),
         news_id: id,
-        username: user.username,
+        user_id: user.id,
       };
 
       const { error } = await supabase.from("news_hidden").insert(payload);

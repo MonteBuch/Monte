@@ -1,14 +1,15 @@
-// src/components/Auth/ForceReset.jsx
+// src/components/auth/ForceReset.jsx
 import React, { useState } from "react";
-import { Lock, Save, AlertTriangle } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import { Lock, Save, AlertTriangle, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
 
 export default function ForceReset({ user, onPasswordUpdated }) {
   const [newPw1, setNewPw1] = useState("");
   const [newPw2, setNewPw2] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
@@ -16,32 +17,49 @@ export default function ForceReset({ user, onPasswordUpdated }) {
       setError("Bitte ein neues Passwort vergeben.");
       return;
     }
+    if (newPw1.length < 6) {
+      setError("Passwort muss mindestens 6 Zeichen haben.");
+      return;
+    }
     if (newPw1 !== newPw2) {
       setError("Die Passwörter stimmen nicht überein.");
       return;
     }
 
-    // Benutzerliste laden
-    const all = StorageService.get("users") || [];
-    const idx = all.findIndex((u) => u.id === user.id);
+    setLoading(true);
 
-    if (idx < 0) {
-      setError("Benutzer nicht gefunden.");
-      return;
+    try {
+      // 1. Passwort bei Supabase Auth ändern
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPw1,
+      });
+
+      if (updateError) throw updateError;
+
+      // 2. must_reset_password Flag in profiles zurücksetzen
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ must_reset_password: false })
+        .eq("id", user.id);
+
+      if (profileError) {
+        console.error("Profil-Update fehlgeschlagen:", profileError);
+        // Nicht fatal - Passwort ist geändert
+      }
+
+      // 3. User ohne mustResetPassword zurückgeben
+      const updatedUser = {
+        ...user,
+        mustResetPassword: false,
+      };
+
+      onPasswordUpdated(updatedUser);
+    } catch (err) {
+      console.error("Passwort-Reset fehlgeschlagen:", err);
+      setError(err.message || "Passwort konnte nicht geändert werden.");
     }
 
-    // Update durchführen
-    const updated = {
-      ...user,
-      password: newPw1,
-      mustResetPassword: false,
-      tempPassword: null,
-    };
-
-    all[idx] = updated;
-    StorageService.set("users", all);
-
-    onPasswordUpdated(updated);
+    setLoading(false);
   };
 
   return (
@@ -72,6 +90,7 @@ export default function ForceReset({ user, onPasswordUpdated }) {
               onChange={(e) => setNewPw1(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
               placeholder="Neues Passwort"
+              minLength={6}
               required
             />
           </div>
@@ -87,6 +106,7 @@ export default function ForceReset({ user, onPasswordUpdated }) {
               onChange={(e) => setNewPw2(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
               placeholder="Passwort wiederholen"
+              minLength={6}
               required
             />
           </div>
@@ -100,10 +120,17 @@ export default function ForceReset({ user, onPasswordUpdated }) {
 
           <button
             type="submit"
-            className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2"
+            disabled={loading}
+            className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <Save size={16} />
-            Passwort speichern
+            {loading ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <>
+                <Save size={16} />
+                Passwort speichern
+              </>
+            )}
           </button>
         </form>
       </div>

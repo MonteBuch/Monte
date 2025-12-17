@@ -1,7 +1,8 @@
 // src/components/admin/AdminCodes.jsx
-import React, { useEffect, useState } from "react";
-import { KeyRound, Info } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import React, { useEffect, useState, useCallback } from "react";
+import { KeyRound, Info, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import SaveButton from "../ui/SaveButton";
 
 export default function AdminCodes() {
@@ -12,22 +13,39 @@ export default function AdminCodes() {
   });
 
   const [initial, setInitial] = useState(codes);
+  const [loading, setLoading] = useState(true);
 
   /* -------------------------------------------------------------
-     LOAD — Codes aus facilitySettings laden
+     LOAD — Codes aus Supabase laden
      ------------------------------------------------------------- */
-  useEffect(() => {
-    const facility = StorageService.getFacilitySettings() || {};
+  const loadCodes = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("registration_codes")
+        .select("*")
+        .eq("facility_id", FACILITY_ID);
 
-    const loaded = {
-      parent: facility?.codes?.parent || "",
-      team: facility?.codes?.team || "",
-      admin: facility?.codes?.admin || "",
-    };
+      if (error) throw error;
 
-    setCodes(loaded);
-    setInitial(loaded);
+      const loaded = {
+        parent: data?.find((c) => c.role === "parent")?.code || "",
+        team: data?.find((c) => c.role === "team")?.code || "",
+        admin: data?.find((c) => c.role === "admin")?.code || "",
+      };
+
+      setCodes(loaded);
+      setInitial(loaded);
+    } catch (err) {
+      console.error("Codes laden fehlgeschlagen:", err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadCodes();
+  }, [loadCodes]);
 
   const changed = JSON.stringify(codes) !== JSON.stringify(initial);
 
@@ -42,23 +60,35 @@ export default function AdminCodes() {
   };
 
   /* -------------------------------------------------------------
-     SAVE — facilitySettings aktualisieren
+     SAVE — Codes in Supabase speichern
      ------------------------------------------------------------- */
   const save = async () => {
-    const facility = StorageService.getFacilitySettings() || {};
+    try {
+      // Alle drei Codes aktualisieren
+      for (const role of ["parent", "team", "admin"]) {
+        await supabase
+          .from("registration_codes")
+          .upsert({
+            facility_id: FACILITY_ID,
+            role,
+            code: codes[role].trim(),
+          }, { onConflict: "facility_id,role" });
+      }
 
-    const updated = {
-      ...facility,
-      codes: {
-        parent: codes.parent.trim(),
-        team: codes.team.trim(),
-        admin: codes.admin.trim(),
-      },
-    };
-
-    StorageService.saveFacilitySettings(updated);
-    setInitial(updated.codes);
+      setInitial({ ...codes });
+    } catch (err) {
+      console.error("Codes speichern fehlgeschlagen:", err);
+      alert("Fehler beim Speichern: " + err.message);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 flex justify-center">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
 
   /* -------------------------------------------------------------
      UI

@@ -3,10 +3,10 @@ import React, { useState } from "react";
 import {
   ArrowLeft,
   Save,
-  Fingerprint,
+  Loader2,
 } from "lucide-react";
-import { StorageService } from "../../lib/storage";
-import ProfileDeleteConfirm from "./ProfileDeleteConfirm"; // Bestätigungsdialog einbinden
+import { supabase } from "../../api/supabaseClient";
+import ProfileDeleteConfirm from "./ProfileDeleteConfirm";
 
 export default function ProfileSecurity({
   user,
@@ -14,17 +14,18 @@ export default function ProfileSecurity({
   onUpdateUser,
   onDeleteAccount,
 }) {
-  const [oldPw, setOldPw] = useState("");
   const [newPw1, setNewPw1] = useState("");
   const [newPw2, setNewPw2] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const biomKey = `bio_${user.username}`;
+  // Biometric-Flag bleibt in localStorage (gerätespezifisch)
+  const biomKey = `bio_${user.id}`;
   const [biometric, setBiometric] = useState(
     localStorage.getItem(biomKey) === "1"
   );
 
-  // Zustand für Bestätigungsdialog
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const toggleBiometric = () => {
@@ -33,33 +34,39 @@ export default function ProfileSecurity({
     localStorage.setItem(biomKey, newVal ? "1" : "0");
   };
 
-  const handlePw = (e) => {
+  const handlePw = async (e) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
 
-    if (!oldPw || !newPw1 || !newPw2) {
-      return setError("Bitte alle Felder ausfüllen.");
+    if (!newPw1 || !newPw2) {
+      return setError("Bitte beide Felder ausfüllen.");
     }
-    if (oldPw !== user.password) {
-      return setError("Das aktuelle Passwort ist falsch.");
+    if (newPw1.length < 6) {
+      return setError("Passwort muss mindestens 6 Zeichen haben.");
     }
     if (newPw1 !== newPw2) {
-      return setError("Neue Passwörter stimmen nicht überein.");
+      return setError("Passwörter stimmen nicht überein.");
     }
 
-    const all = StorageService.get("users");
-    const idx = all.findIndex((u) => u.id === user.id);
-    if (idx === -1) return;
+    setLoading(true);
 
-    const updated = { ...user, password: newPw1 };
-    all[idx] = updated;
-    StorageService.set("users", all);
-    onUpdateUser(updated);
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPw1,
+      });
 
-    alert("Passwort geändert.");
-    setOldPw("");
-    setNewPw1("");
-    setNewPw2("");
+      if (updateError) throw updateError;
+
+      setSuccess("Passwort erfolgreich geändert.");
+      setNewPw1("");
+      setNewPw2("");
+    } catch (err) {
+      console.error("Passwort-Änderung fehlgeschlagen:", err);
+      setError(err.message || "Passwort konnte nicht geändert werden.");
+    }
+
+    setLoading(false);
   };
 
   return (
@@ -109,17 +116,11 @@ export default function ProfileSecurity({
 
         <input
           type="password"
-          placeholder="Aktuelles Passwort"
-          value={oldPw}
-          onChange={(e) => setOldPw(e.target.value)}
-          className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
-        />
-        <input
-          type="password"
           placeholder="Neues Passwort"
           value={newPw1}
           onChange={(e) => setNewPw1(e.target.value)}
           className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
+          minLength={6}
         />
         <input
           type="password"
@@ -127,6 +128,7 @@ export default function ProfileSecurity({
           value={newPw2}
           onChange={(e) => setNewPw2(e.target.value)}
           className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
+          minLength={6}
         />
 
         {error && (
@@ -135,16 +137,29 @@ export default function ProfileSecurity({
           </div>
         )}
 
+        {success && (
+          <div className="text-xs text-green-600 bg-green-50 p-3 rounded-xl">
+            {success}
+          </div>
+        )}
+
         <button
           type="submit"
-          className="w-full bg-amber-500 text-white rounded-xl py-3 flex items-center justify-center gap-2 font-bold hover:bg-amber-600 active:scale-[0.99]"
+          disabled={loading}
+          className="w-full bg-amber-500 text-white rounded-xl py-3 flex items-center justify-center gap-2 font-bold hover:bg-amber-600 active:scale-[0.99] disabled:opacity-50"
         >
-          <Save size={16} />
-          Passwort speichern
+          {loading ? (
+            <Loader2 className="animate-spin" size={16} />
+          ) : (
+            <>
+              <Save size={16} />
+              Passwort speichern
+            </>
+          )}
         </button>
       </form>
 
-      {/* DELETE: zeigt nun einen Bestätigungsdialog */}
+      {/* DELETE */}
       <button
         onClick={() => setConfirmDelete(true)}
         className="w-full bg-red-500 text-white rounded-xl py-3 font-bold hover:bg-red-600 active:scale-[0.99]"

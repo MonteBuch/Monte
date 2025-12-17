@@ -1,9 +1,9 @@
 // src/components/absence/AbsenceTeam.jsx
-import React, { useEffect, useState } from "react";
-import { Eye, EyeOff, Trash2, CalendarDays } from "lucide-react";
-import { StorageService } from "../../lib/storage";
-
-const STATUS_KEY = "absence_status";
+import React, { useEffect, useState, useCallback } from "react";
+import { Eye, EyeOff, Trash2, CalendarDays, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
+import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -59,63 +59,123 @@ function formatReason(reason) {
   }
 }
 
-function loadStatusForUser(username) {
-  const raw = StorageService.get(STATUS_KEY);
-  const allStatus = raw && !Array.isArray(raw) ? raw : {};
-  const userStatus = allStatus[username] || {};
-  return { allStatus, userStatus };
-}
-
-function saveStatusForUser(username, userStatus) {
-  const raw = StorageService.get(STATUS_KEY);
-  const allStatus = raw && !Array.isArray(raw) ? raw : {};
-  allStatus[username] = userStatus;
-  StorageService.set(STATUS_KEY, allStatus);
-}
-
 export default function AbsenceTeam({ user }) {
   const [allEntries, setAllEntries] = useState([]);
   const [statusMap, setStatusMap] = useState({});
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
   const isAdmin = user.role === "admin";
-  const isTeam = user.role === "team";
-
-  const facility = StorageService.getFacilitySettings();
-  const allGroups = (facility?.groups || []).filter((g) => g.id !== "event"); // ✅ EVENT HIER GLOBAL ENTFERNT
 
   const [selectedGroup, setSelectedGroup] = useState(
     isAdmin ? "all" : user.primaryGroup || "all"
   );
 
+  // Gruppen laden
   useEffect(() => {
-    const absences = StorageService.get("absences") || [];
-    const todayIso = new Date().toISOString().slice(0, 10);
+    async function loadGroups() {
+      try {
+        const { data } = await supabase
+          .from("groups")
+          .select("*")
+          .eq("facility_id", FACILITY_ID)
+          .order("position");
+        setGroups(data || []);
+      } catch (err) {
+        console.error("Gruppen laden fehlgeschlagen:", err);
+      }
+    }
+    loadGroups();
+  }, []);
 
-    const { userStatus } = loadStatusForUser(user.username);
-    let changed = false;
+  // Absences + Read-Status laden
+  const loadAbsences = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
 
-    absences.forEach((e) => {
-      const meta = userStatus[e.id] || { status: "new", deleted: false };
+    try {
+      // Absences für die Facility laden
+      const { data: absences, error: absError } = await supabase
+        .from("absences")
+        .select("*")
+        .eq("facility_id", FACILITY_ID)
+        .order("created_at", { ascending: false });
 
-      if (!meta.deleted && meta.status === "read") {
-        const endIso =
-          e.type === "range" ? e.dateTo || e.dateFrom : e.dateFrom;
+      if (absError) throw absError;
 
-        if (endIso && endIso < todayIso) {
-          meta.deleted = true;
-          changed = true;
+      // Read-Status für den User laden
+      const { data: statusData, error: statusError } = await supabase
+        .from("absence_read_status")
+        .select("*")
+        .eq("user_id", user.id);
+
+      if (statusError) throw statusError;
+
+      // Status-Map aufbauen
+      const newStatusMap = {};
+      (statusData || []).forEach((s) => {
+        newStatusMap[s.absence_id] = {
+          status: s.status || "new",
+          hidden: s.hidden || false,
+        };
+      });
+
+      // Absences formatieren
+      const formatted = (absences || []).map((a) => ({
+        id: a.id,
+        childId: a.child_id,
+        childName: a.child_name,
+        groupId: a.group_id,
+        type: a.type,
+        dateFrom: a.date_from,
+        dateTo: a.date_to,
+        reason: a.reason,
+        otherText: a.other_text,
+        status: a.status,
+        createdAt: a.created_at,
+      }));
+
+      // Auto-Hide: gelesene + vergangene Meldungen ausblenden
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const toHide = [];
+
+      formatted.forEach((e) => {
+        const meta = newStatusMap[e.id] || { status: "new", hidden: false };
+        if (!meta.hidden && meta.status === "read") {
+          const endIso = e.type === "range" ? e.dateTo || e.dateFrom : e.dateFrom;
+          if (endIso && endIso < todayIso) {
+            toHide.push(e.id);
+            meta.hidden = true;
+          }
+        }
+        newStatusMap[e.id] = meta;
+      });
+
+      // Auto-hide in DB speichern
+      if (toHide.length > 0) {
+        for (const absenceId of toHide) {
+          await supabase
+            .from("absence_read_status")
+            .upsert({
+              absence_id: absenceId,
+              user_id: user.id,
+              hidden: true,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "absence_id,user_id" });
         }
       }
 
-      userStatus[e.id] = meta;
-    });
-
-    if (changed) {
-      saveStatusForUser(user.username, userStatus);
+      setAllEntries(formatted);
+      setStatusMap(newStatusMap);
+    } catch (err) {
+      console.error("Absences laden fehlgeschlagen:", err);
+    } finally {
+      setLoading(false);
     }
+  }, [user?.id]);
 
-    setAllEntries(absences);
-    setStatusMap(userStatus);
-  }, [user.username]);
+  useEffect(() => {
+    loadAbsences();
+  }, [loadAbsences]);
 
   useEffect(() => {
     setSelectedGroup(isAdmin ? "all" : user.primaryGroup || "all");
@@ -126,9 +186,9 @@ export default function AbsenceTeam({ user }) {
     return meta?.status || "new";
   };
 
-  const isDeletedForUser = (entry) => {
+  const isHiddenForUser = (entry) => {
     const meta = statusMap[entry.id];
-    return meta?.deleted === true;
+    return meta?.hidden === true;
   };
 
   const dateLabel = (e) =>
@@ -136,34 +196,62 @@ export default function AbsenceTeam({ user }) {
       ? formatDate(e.dateFrom)
       : formatDateRange(e.dateFrom, e.dateTo);
 
-  const setStatus = (entry, newStatus) => {
-    const { userStatus } = loadStatusForUser(user.username);
-    const meta = userStatus[entry.id] || { status: "new", deleted: false };
-    meta.status = newStatus;
-    userStatus[entry.id] = meta;
-    saveStatusForUser(user.username, userStatus);
-    setStatusMap(userStatus);
+  const setStatus = async (entry, newStatus) => {
+    try {
+      await supabase
+        .from("absence_read_status")
+        .upsert({
+          absence_id: entry.id,
+          user_id: user.id,
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "absence_id,user_id" });
+
+      setStatusMap((prev) => ({
+        ...prev,
+        [entry.id]: { ...prev[entry.id], status: newStatus },
+      }));
+    } catch (err) {
+      console.error("Status speichern fehlgeschlagen:", err);
+    }
   };
 
-  const removeForUser = (entry) => {
+  const hideForUser = async (entry) => {
     if (!confirm("Meldung für dieses Profil ausblenden?")) return;
 
-    const { userStatus } = loadStatusForUser(user.username);
-    const meta = userStatus[entry.id] || { status: "new", deleted: false };
-    meta.deleted = true;
-    userStatus[entry.id] = meta;
-    saveStatusForUser(user.username, userStatus);
-    setStatusMap(userStatus);
+    try {
+      await supabase
+        .from("absence_read_status")
+        .upsert({
+          absence_id: entry.id,
+          user_id: user.id,
+          hidden: true,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "absence_id,user_id" });
+
+      setStatusMap((prev) => ({
+        ...prev,
+        [entry.id]: { ...prev[entry.id], hidden: true },
+      }));
+    } catch (err) {
+      console.error("Ausblenden fehlgeschlagen:", err);
+    }
   };
 
+  // Filter: keine Event-Gruppen
+  const displayGroups = groups.filter((g) => !g.is_event_group);
+
+  // Event-Gruppen-IDs ermitteln
+  const eventGroupIds = groups.filter((g) => g.is_event_group).map((g) => g.id);
+
   const visibleEntries = allEntries
-    .filter((e) => !isDeletedForUser(e))
+    .filter((e) => !isHiddenForUser(e))
     .filter((e) => {
       if (selectedGroup === "all") return true;
       return e.groupId === selectedGroup;
     })
-    .filter((e) => e.groupId !== "event") // ✅ EVENT-MELDUNGEN KOMPLETT RAUS
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .filter((e) => !eventGroupIds.includes(e.groupId)) // Event-Meldungen raus
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 
   const newEntries = visibleEntries.filter(
     (e) => effectiveStatus(e) === "new"
@@ -173,9 +261,9 @@ export default function AbsenceTeam({ user }) {
   );
 
   const unreadCountByGroup = allEntries.reduce((acc, e) => {
-    if (isDeletedForUser(e)) return acc;
+    if (isHiddenForUser(e)) return acc;
     if (effectiveStatus(e) !== "new") return acc;
-    if (e.groupId === "event") return acc; // ✅ KEIN BADGE FÜR EVENT
+    if (eventGroupIds.includes(e.groupId)) return acc;
     const gid = e.groupId || "unknown";
     acc[gid] = (acc[gid] || 0) + 1;
     return acc;
@@ -187,7 +275,8 @@ export default function AbsenceTeam({ user }) {
   );
 
   const renderEntryCard = (entry, faded) => {
-    const g = allGroups.find((x) => x.id === entry.groupId);
+    const groupRaw = getGroupById(displayGroups, entry.groupId);
+    const groupStyles = getGroupStyles(groupRaw);
     const reason = formatReason(entry.reason);
 
     return (
@@ -218,12 +307,12 @@ export default function AbsenceTeam({ user }) {
           </div>
 
           <div className="flex flex-col items-end gap-2">
-            {g && (
+            {groupStyles && (
               <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${g.color}`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${groupStyles.chipClass}`}
               >
-                {g.icon}
-                <span>{g.name}</span>
+                <groupStyles.Icon size={12} />
+                <span>{groupStyles.name}</span>
               </span>
             )}
 
@@ -245,7 +334,7 @@ export default function AbsenceTeam({ user }) {
               )}
 
               <button
-                onClick={() => removeForUser(entry)}
+                onClick={() => hideForUser(entry)}
                 className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100"
               >
                 <Trash2 size={14} />
@@ -261,6 +350,14 @@ export default function AbsenceTeam({ user }) {
       </div>
     );
   };
+
+  if (loading) {
+    return (
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 flex justify-center">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -282,7 +379,8 @@ export default function AbsenceTeam({ user }) {
           )}
         </button>
 
-        {allGroups.map((g) => {
+        {displayGroups.map((g) => {
+          const groupStyles = getGroupStyles(g);
           const unread = unreadCountByGroup[g.id] || 0;
           const active = selectedGroup === g.id;
 
@@ -293,12 +391,12 @@ export default function AbsenceTeam({ user }) {
               onClick={() => setSelectedGroup(g.id)}
               className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold border transition ${
                 active
-                  ? `${g.color} border-transparent text-white`
+                  ? `${groupStyles.chipClass} border-transparent text-white`
                   : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
               }`}
             >
-              {g.icon}
-              <span>{g.name}</span>
+              <groupStyles.Icon size={14} />
+              <span>{groupStyles.name}</span>
               {unread > 0 && (
                 <span
                   className={`ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] ${

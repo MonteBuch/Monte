@@ -1,6 +1,5 @@
 // src/components/group/GroupArea.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 import { fetchGroups } from "../../api/groupApi";
 import { fetchListsByGroup } from "../../api/listApi";
@@ -17,7 +16,7 @@ export default function GroupArea({ user }) {
   const realChildren = Array.isArray(user.children) ? user.children : [];
 
   // ───────────────────────────────────────────────────────────────
-  // GRUPPEN (Supabase mit Fallback auf Facility)
+  // GRUPPEN (Supabase)
   // ───────────────────────────────────────────────────────────────
   const [groups, setGroups] = useState([]);
 
@@ -29,18 +28,9 @@ export default function GroupArea({ user }) {
         const supabaseGroups = await fetchGroups();
         if (!cancelled && Array.isArray(supabaseGroups)) {
           setGroups(supabaseGroups);
-          return;
         }
       } catch (e) {
-        console.warn(
-          "Supabase Gruppen nicht verfügbar – Fallback auf LocalStorage"
-        );
-      }
-
-      const facility = StorageService.getFacilitySettings();
-      const fallbackGroups = facility?.groups || [];
-      if (!cancelled) {
-        setGroups(fallbackGroups);
+        console.error("Gruppen laden fehlgeschlagen:", e);
       }
     }
 

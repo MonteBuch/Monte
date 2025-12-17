@@ -1,19 +1,17 @@
 // src/components/admin/AdminUserModal.jsx
 import React, { useState } from "react";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
-import { StorageService } from "../../lib/storage";
 import SaveButton from "../ui/SaveButton";
 
-export default function AdminUserModal({ user, onCancel, onSave }) {
-  const facility = StorageService.getFacilitySettings();
-  const groups = facility.groups || [];
+export default function AdminUserModal({ user, groups = [], onCancel, onSave }) {
+  const displayGroups = groups.filter(g => !g.is_event_group);
 
-  const [username, setUsername] = useState(user.username);
+  const [name, setName] = useState(user.name || "");
   const [primaryGroup, setPrimaryGroup] = useState(user.primaryGroup || "");
   const [children, setChildren] = useState(user.children || []);
 
   const changed =
-    username !== user.username ||
+    name !== (user.name || "") ||
     primaryGroup !== (user.primaryGroup || "") ||
     JSON.stringify(children) !== JSON.stringify(user.children || []);
 
@@ -25,7 +23,7 @@ export default function AdminUserModal({ user, onCancel, onSave }) {
 
   const addChild = () => {
     const id = crypto.randomUUID();
-    const defaultGroup = primaryGroup || (groups[0] && groups[0].id) || "";
+    const defaultGroup = primaryGroup || (displayGroups[0]?.id) || "";
     setChildren((prev) => [
       ...prev,
       {
@@ -45,7 +43,7 @@ export default function AdminUserModal({ user, onCancel, onSave }) {
   const saveUser = () => {
     const updated = {
       ...user,
-      username: username.trim(),
+      name: name.trim(),
       primaryGroup: user.role === "parent" ? undefined : primaryGroup,
       children: user.role === "parent" ? children : undefined,
     };
@@ -69,15 +67,15 @@ export default function AdminUserModal({ user, onCancel, onSave }) {
           Benutzer bearbeiten
         </h3>
 
-        {/* Username */}
+        {/* Name */}
         <div className="space-y-1">
           <label className="text-xs uppercase text-stone-500 font-semibold">
-            Benutzername
+            Name
           </label>
           <input
             className="w-full p-3 rounded-xl bg-stone-50 border border-stone-300 text-sm"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
           />
         </div>
 
@@ -93,7 +91,8 @@ export default function AdminUserModal({ user, onCancel, onSave }) {
               value={primaryGroup}
               onChange={(e) => setPrimaryGroup(e.target.value)}
             >
-              {groups.map((g) => (
+              <option value="">Keine</option>
+              {displayGroups.map((g) => (
                 <option value={g.id} key={g.id}>
                   {g.name}
                 </option>
@@ -142,7 +141,7 @@ export default function AdminUserModal({ user, onCancel, onSave }) {
                         updateChild(c.id, "group", e.target.value)
                       }
                     >
-                      {groups.map((g) => (
+                      {displayGroups.map((g) => (
                         <option key={g.id} value={g.id}>
                           {g.name}
                         </option>

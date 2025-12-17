@@ -1,26 +1,80 @@
 // src/components/admin/AdminUsers.jsx
 import React, { useEffect, useState } from "react";
-import { User, Users, Shield, KeyRound, Pencil, Trash2, AlertTriangle } from "lucide-react";
-import { StorageService } from "../../lib/storage";
-import { GROUPS } from "../../lib/constants";
+import { User, Users, Shield, KeyRound, Pencil, Trash2, AlertTriangle, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import AdminUserModal from "./AdminUserModal";
 
 export default function AdminUsers() {
   const [users, setUsers] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [editingUser, setEditingUser] = useState(null);
   const [confirmDeleteUser, setConfirmDeleteUser] = useState(null);
   const [confirmResetUser, setConfirmResetUser] = useState(null);
 
+  // User und Gruppen laden
   useEffect(() => {
-    const all = StorageService.get("users") || [];
-    setUsers(all);
+    async function loadData() {
+      try {
+        // Gruppen laden
+        const { data: groupsData } = await supabase
+          .from("groups")
+          .select("*")
+          .eq("facility_id", FACILITY_ID)
+          .order("position");
+
+        setGroups(groupsData || []);
+
+        // User mit Kindern laden
+        const { data: profilesData, error } = await supabase
+          .from("profiles")
+          .select(`
+            id,
+            full_name,
+            role,
+            primary_group,
+            must_reset_password,
+            children (
+              id,
+              first_name,
+              birthday,
+              notes,
+              group_id
+            )
+          `)
+          .eq("facility_id", FACILITY_ID);
+
+        if (error) throw error;
+
+        // Format für Kompatibilität
+        const formattedUsers = (profilesData || []).map(p => ({
+          id: p.id,
+          name: p.full_name,
+          role: p.role,
+          primaryGroup: p.primary_group,
+          mustResetPassword: p.must_reset_password,
+          children: (p.children || []).map(c => ({
+            id: c.id,
+            name: c.first_name,
+            group: c.group_id,
+            birthday: c.birthday,
+            notes: c.notes,
+          })),
+        }));
+
+        setUsers(formattedUsers);
+      } catch (err) {
+        console.error("Laden fehlgeschlagen:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
   }, []);
 
-  const facility = StorageService.getFacilitySettings();
-  const customGroups = facility.groups || [];
-
-  const getGroupById = (id) =>
-    customGroups.find((g) => g.id === id) || GROUPS.find((g) => g.id === id);
+  const getGroupById = (id) => groups.find((g) => g.id === id);
 
   const roleLabel = (role) => {
     if (role === "admin") return "Leitung";
@@ -42,35 +96,88 @@ export default function AdminUsers() {
     return `${prefix}: ${parts.join(", ")}`;
   };
 
-  const persistUsers = (updatedUsers) => {
-    setUsers(updatedUsers);
-    StorageService.set("users", updatedUsers);
-  };
-
   const openEdit = (user) => {
     setEditingUser(user);
   };
 
-  const handleSaveUser = (updatedUser) => {
-    const all = StorageService.get("users") || [];
-    const idx = all.findIndex((u) => u.id === updatedUser.id);
-    if (idx === -1) return;
+  const handleSaveUser = async (updatedUser) => {
+    try {
+      // Profil updaten
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: updatedUser.name,
+          primary_group: updatedUser.primaryGroup || null,
+        })
+        .eq("id", updatedUser.id);
 
-    all[idx] = updatedUser;
-    persistUsers(all);
-    setEditingUser(null);
+      if (profileError) throw profileError;
+
+      // Kinder updaten (bei Eltern)
+      if (updatedUser.role === "parent" && updatedUser.children) {
+        // Bestehende Kinder abrufen
+        const { data: existingChildren } = await supabase
+          .from("children")
+          .select("id")
+          .eq("user_id", updatedUser.id);
+
+        const existingIds = (existingChildren || []).map(c => c.id);
+        const newIds = updatedUser.children.map(c => c.id);
+
+        // Gelöschte Kinder entfernen
+        const toDelete = existingIds.filter(id => !newIds.includes(id));
+        if (toDelete.length > 0) {
+          await supabase.from("children").delete().in("id", toDelete);
+        }
+
+        // Kinder updaten/hinzufügen
+        for (const child of updatedUser.children) {
+          if (existingIds.includes(child.id)) {
+            // Update
+            await supabase
+              .from("children")
+              .update({
+                first_name: child.name,
+                group_id: child.group,
+                birthday: child.birthday || null,
+                notes: child.notes || null,
+              })
+              .eq("id", child.id);
+          } else {
+            // Insert
+            await supabase
+              .from("children")
+              .insert({
+                id: child.id,
+                facility_id: FACILITY_ID,
+                user_id: updatedUser.id,
+                first_name: child.name,
+                group_id: child.group,
+                birthday: child.birthday || null,
+                notes: child.notes || null,
+              });
+          }
+        }
+      }
+
+      // Lokalen State aktualisieren
+      setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+      setEditingUser(null);
+    } catch (err) {
+      console.error("Speichern fehlgeschlagen:", err);
+      alert("Fehler beim Speichern: " + err.message);
+    }
   };
 
   const requestDelete = (user) => {
     setConfirmDeleteUser(user);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!confirmDeleteUser) return;
 
     const admins = users.filter((u) => u.role === "admin");
-    const isLastAdmin =
-      confirmDeleteUser.role === "admin" && admins.length <= 1;
+    const isLastAdmin = confirmDeleteUser.role === "admin" && admins.length <= 1;
 
     if (isLastAdmin) {
       alert("Es muss mindestens eine Leitung (Admin) bestehen bleiben.");
@@ -78,42 +185,70 @@ export default function AdminUsers() {
       return;
     }
 
-    const remaining = users.filter((u) => u.id !== confirmDeleteUser.id);
-    persistUsers(remaining);
-    setConfirmDeleteUser(null);
+    try {
+      // Kinder löschen
+      await supabase.from("children").delete().eq("user_id", confirmDeleteUser.id);
+
+      // Profil löschen
+      const { error } = await supabase
+        .from("profiles")
+        .delete()
+        .eq("id", confirmDeleteUser.id);
+
+      if (error) throw error;
+
+      // Auth-User kann nur über Supabase Admin API gelöscht werden
+      // Profil-Löschung reicht für die App-Funktionalität
+
+      setUsers(prev => prev.filter(u => u.id !== confirmDeleteUser.id));
+      setConfirmDeleteUser(null);
+    } catch (err) {
+      console.error("Löschen fehlgeschlagen:", err);
+      alert("Fehler beim Löschen: " + err.message);
+    }
   };
 
   const requestReset = (user) => {
     setConfirmResetUser(user);
   };
 
-  const confirmReset = () => {
+  const confirmReset = async () => {
     if (!confirmResetUser) return;
 
-    const all = StorageService.get("users") || [];
-    const idx = all.findIndex((u) => u.id === confirmResetUser.id);
-    if (idx === -1) {
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ must_reset_password: true })
+        .eq("id", confirmResetUser.id);
+
+      if (error) throw error;
+
+      setUsers(prev => prev.map(u =>
+        u.id === confirmResetUser.id ? { ...u, mustResetPassword: true } : u
+      ));
+
       setConfirmResetUser(null);
-      return;
+      alert("Passwort-Reset aktiviert. Der Benutzer muss beim nächsten Login ein neues Passwort vergeben.");
+    } catch (err) {
+      console.error("Reset fehlgeschlagen:", err);
+      alert("Fehler: " + err.message);
     }
-
-    const updatedUser = {
-      ...all[idx],
-      mustResetPassword: true,
-    };
-
-    all[idx] = updatedUser;
-    persistUsers(all);
-    setConfirmResetUser(null);
-    alert("Passwort-Reset aktiviert. Der Benutzer muss beim nächsten Login ein neues Passwort vergeben.");
   };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="animate-spin text-amber-500" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold text-stone-800">Benutzerverwaltung</h2>
 
       <p className="text-xs text-stone-500 mb-2">
-        Hier verwaltest du alle Profile, Gruppen und Zugänge.  
+        Hier verwaltest du alle Profile, Gruppen und Zugänge.
         Du kannst Benutzer bearbeiten, Passwörter zurücksetzen oder Accounts löschen.
       </p>
 
@@ -141,7 +276,7 @@ export default function AdminUsers() {
                 <div className="space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-sm text-stone-800">
-                      {u.name || u.username}
+                      {u.name}
                     </span>
                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-semibold uppercase tracking-wide">
                       {roleLabel(u.role)}
@@ -152,10 +287,6 @@ export default function AdminUsers() {
                       </span>
                     )}
                   </div>
-
-                  <p className="text-xs text-stone-500">
-                    Benutzername: <span className="font-mono">{u.username}</span>
-                  </p>
 
                   {group && (u.role === "team" || u.role === "admin") && (
                     <p className="text-xs text-stone-500 flex items-center gap-2">
@@ -217,6 +348,7 @@ export default function AdminUsers() {
       {editingUser && (
         <AdminUserModal
           user={editingUser}
+          groups={groups}
           onCancel={() => setEditingUser(null)}
           onSave={handleSaveUser}
         />
@@ -235,7 +367,7 @@ export default function AdminUsers() {
             <p className="text-sm text-stone-600">
               Soll der Benutzer{" "}
               <span className="font-semibold">
-                {confirmDeleteUser.name || confirmDeleteUser.username}
+                {confirmDeleteUser.name}
               </span>{" "}
               wirklich gelöscht werden?
             </p>
@@ -270,7 +402,7 @@ export default function AdminUsers() {
             <p className="text-sm text-stone-600">
               Der Benutzer{" "}
               <span className="font-semibold">
-                {confirmResetUser.name || confirmResetUser.username}
+                {confirmResetUser.name}
               </span>{" "}
               muss beim nächsten Login ein neues Passwort vergeben.
             </p>

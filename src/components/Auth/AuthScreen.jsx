@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Sprout,
   KeyRound,
@@ -10,19 +10,15 @@ import {
   CalendarDays,
   StickyNote,
 } from "lucide-react";
-import { StorageService } from "../../lib/storage";
-import {
-  DEFAULT_PARENT_CODE,
-  DEFAULT_TEAM_CODE,
-  DEFAULT_ADMIN_CODE,
-} from "../../lib/constants";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 export default function AuthScreen({ onLogin }) {
   const [isRegistering, setIsRegistering] = useState(false);
 
   const [role, setRole] = useState("parent");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
 
@@ -30,35 +26,59 @@ export default function AuthScreen({ onLogin }) {
   const [teamCode, setTeamCode] = useState("");
   const [adminCode, setAdminCode] = useState("");
 
-  const facility = StorageService.getFacilitySettings();
-  const groups = facility?.groups || [];
+  const [groups, setGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(true);
 
-  const defaultGroupId = groups[0]?.id || null;
+  const defaultGroupId = groups.find(g => g.id !== "event")?.id || null;
 
-  const [children, setChildren] = useState([
-    {
-      id: crypto.randomUUID(),
-      name: "",
-      group: defaultGroupId,
-      birthday: "",
-      notes: "",
-    },
-  ]);
+  const [children, setChildren] = useState([]);
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const expectedParentCode = facility.codes.parent || DEFAULT_PARENT_CODE;
-  const expectedTeamCode = facility.codes.team || DEFAULT_TEAM_CODE;
-  const expectedAdminCode = facility.codes.admin || DEFAULT_ADMIN_CODE;
+  // Gruppen aus Supabase laden
+  useEffect(() => {
+    async function loadGroups() {
+      try {
+        const { data, error } = await supabase
+          .from("groups")
+          .select("*")
+          .eq("facility_id", FACILITY_ID)
+          .order("position");
+
+        if (error) throw error;
+        setGroups(data || []);
+      } catch (err) {
+        console.error("Fehler beim Laden der Gruppen:", err);
+      } finally {
+        setLoadingGroups(false);
+      }
+    }
+    loadGroups();
+  }, []);
+
+  // Default-Kind setzen wenn Gruppen geladen
+  useEffect(() => {
+    if (groups.length > 0 && children.length === 0) {
+      const firstGroup = groups.find(g => !g.is_event_group) || groups[0];
+      setChildren([{
+        id: crypto.randomUUID(),
+        name: "",
+        group: firstGroup?.id || null,
+        birthday: "",
+        notes: "",
+      }]);
+    }
+  }, [groups]);
 
   const handleAddChild = () => {
+    const firstGroup = groups.find(g => !g.is_event_group) || groups[0];
     setChildren((prev) => [
       ...prev,
       {
         id: crypto.randomUUID(),
         name: "",
-        group: defaultGroupId,
+        group: firstGroup?.id || null,
         birthday: "",
         notes: "",
       },
@@ -75,70 +95,168 @@ export default function AuthScreen({ onLogin }) {
     );
   };
 
+  // Code validieren über Supabase
+  const validateCode = async (code, role) => {
+    try {
+      const { data, error } = await supabase.rpc("validate_registration_code", {
+        p_code: code,
+        p_role: role,
+        p_facility_id: FACILITY_ID,
+      });
+      if (error) throw error;
+      return data === true;
+    } catch (err) {
+      console.error("Code-Validierung fehlgeschlagen:", err);
+      return false;
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    await new Promise((r) => setTimeout(r, 250));
-
     try {
       if (isRegistering) {
-        if (!username || !password || !name) {
+        // === REGISTRIERUNG ===
+        if (!email || !password || !name) {
           throw new Error("Bitte alle Pflichtfelder ausfüllen.");
         }
 
-        if (role === "parent" && parentCode !== expectedParentCode) {
-          throw new Error("Falscher Eltern-Code.");
-        }
-        if (role === "team" && teamCode !== expectedTeamCode) {
-          throw new Error("Falscher Team-Code.");
-        }
-        if (role === "admin" && adminCode !== expectedAdminCode) {
-          throw new Error("Falscher Admin-Code.");
+        if (password.length < 6) {
+          throw new Error("Passwort muss mindestens 6 Zeichen haben.");
         }
 
-        const allUsers = StorageService.get("users") || [];
-        if (allUsers.find((u) => u.username === username)) {
-          throw new Error("Benutzername ist bereits vergeben.");
+        // Code validieren
+        const codeToValidate =
+          role === "parent" ? parentCode :
+          role === "team" ? teamCode : adminCode;
+
+        const isValidCode = await validateCode(codeToValidate, role);
+        if (!isValidCode) {
+          throw new Error(`Ungültiger ${role === "parent" ? "Eltern" : role === "team" ? "Team" : "Admin"}-Code.`);
         }
 
-        const newUser = {
-          id: crypto.randomUUID(),
-          username,
+        // Kinder validieren (bei Eltern)
+        if (role === "parent") {
+          if (children.length === 0) {
+            throw new Error("Bitte mindestens ein Kind hinzufügen.");
+          }
+          const invalidChild = children.find(c => !c.name || !c.group);
+          if (invalidChild) {
+            throw new Error("Bitte für jedes Kind Name und Gruppe angeben.");
+          }
+        }
+
+        // 1. Auth-User erstellen
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+          email: email.toLowerCase().trim(),
           password,
-          name,
-          role,
-          children: role === "parent" ? children : [],
-          primaryGroup:
-            role === "team" || role === "admin" ? defaultGroupId : null,
-        };
+        });
 
-        StorageService.add("users", newUser);
-        onLogin(newUser);
+        if (signUpError) {
+          if (signUpError.message.includes("already registered")) {
+            throw new Error("Diese E-Mail ist bereits registriert.");
+          }
+          throw signUpError;
+        }
+
+        const userId = authData.user?.id;
+        if (!userId) {
+          throw new Error("Registrierung fehlgeschlagen. Bitte erneut versuchen.");
+        }
+
+        // 2. Profil erstellen oder updaten (Trigger erstellt evtl. schon ein leeres Profil)
+        const primaryGroup = role === "parent"
+          ? null
+          : (groups.find(g => !g.is_event_group)?.id || null);
+
+        // Erst versuchen zu updaten (falls Trigger das Profil schon erstellt hat)
+        const { error: updateError } = await supabase
+          .from("profiles")
+          .update({
+            facility_id: FACILITY_ID,
+            full_name: name,
+            role,
+            primary_group: primaryGroup,
+          })
+          .eq("id", userId);
+
+        if (updateError) {
+          // Falls Update fehlschlägt, versuche Insert
+          const { error: insertError } = await supabase
+            .from("profiles")
+            .insert({
+              id: userId,
+              facility_id: FACILITY_ID,
+              full_name: name,
+              role,
+              primary_group: primaryGroup,
+            });
+
+          if (insertError) {
+            console.error("Profil-Fehler:", insertError);
+            throw new Error("Profil konnte nicht erstellt werden.");
+          }
+        }
+
+        // 3. Kinder erstellen (bei Eltern)
+        if (role === "parent" && children.length > 0) {
+          console.log("[Auth] Erstelle Kinder für User:", userId);
+          console.log("[Auth] Kinder-Daten:", children);
+
+          const childrenToInsert = children.map(c => ({
+            facility_id: FACILITY_ID,
+            user_id: userId,
+            first_name: c.name,
+            group_id: c.group,
+            birthday: c.birthday || null,
+            notes: c.notes || null,
+          }));
+
+          console.log("[Auth] Insert-Daten:", childrenToInsert);
+
+          const { data: insertedChildren, error: childrenError } = await supabase
+            .from("children")
+            .insert(childrenToInsert)
+            .select();
+
+          if (childrenError) {
+            console.error("[Auth] Kinder-Fehler:", childrenError);
+            console.error("[Auth] Fehler-Details:", JSON.stringify(childrenError, null, 2));
+            // Warnung anzeigen, aber Registrierung fortsetzen
+            console.warn("[Auth] Kinder konnten nicht erstellt werden - RLS-Policy Problem?");
+          } else {
+            console.log("[Auth] Kinder erfolgreich erstellt:", insertedChildren);
+          }
+        }
+
+        // 4. User-Daten für App laden
+        const userData = await loadUserProfile(userId);
+        onLogin(userData);
+
       } else {
-        const allUsers = StorageService.get("users") || [];
-        const found = allUsers.find(
-          (u) => u.username.toLowerCase() === username.toLowerCase()
-        );
+        // === LOGIN ===
+        const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.toLowerCase().trim(),
+          password,
+        });
 
-        if (!found) {
-          throw new Error("Ungültige Zugangsdaten.");
+        if (signInError) {
+          if (signInError.message.includes("Invalid login")) {
+            throw new Error("Ungültige Zugangsdaten.");
+          }
+          throw signInError;
         }
 
-        if (found.mustResetPassword) {
-          onLogin({
-            ...found,
-            forceReset: true,
-          });
-          return;
+        const userId = authData.user?.id;
+        if (!userId) {
+          throw new Error("Login fehlgeschlagen.");
         }
 
-        if (found.password !== password) {
-          throw new Error("Ungültige Zugangsdaten.");
-        }
-
-        onLogin(found);
+        // User-Daten laden
+        const userData = await loadUserProfile(userId);
+        onLogin(userData);
       }
     } catch (err) {
       setError(err.message);
@@ -146,6 +264,49 @@ export default function AuthScreen({ onLogin }) {
 
     setLoading(false);
   };
+
+  // User-Profil aus Supabase laden
+  const loadUserProfile = async (userId) => {
+    const { data: profile, error } = await supabase
+      .from("profiles")
+      .select(`
+        id,
+        full_name,
+        role,
+        primary_group,
+        facility_id,
+        children (
+          id,
+          first_name,
+          birthday,
+          notes,
+          group_id
+        )
+      `)
+      .eq("id", userId)
+      .single();
+
+    if (error) throw error;
+
+    // Format für App (Kompatibilität mit bestehendem Code)
+    return {
+      id: profile.id,
+      name: profile.full_name,
+      role: profile.role,
+      primaryGroup: profile.primary_group,
+      facilityId: profile.facility_id,
+      children: (profile.children || []).map(c => ({
+        id: c.id,
+        name: c.first_name,
+        group: c.group_id,
+        birthday: c.birthday,
+        notes: c.notes,
+      })),
+    };
+  };
+
+  // Gruppen für Anzeige filtern (ohne Event-Gruppe)
+  const displayGroups = groups.filter(g => !g.is_event_group);
 
   return (
     <div className="h-screen bg-[#fcfaf7] flex flex-col items-center justify-center p-4 overflow-y-auto">
@@ -280,16 +441,15 @@ export default function AuthScreen({ onLogin }) {
                 )}
 
                 {/* KINDER */}
-                {role === "parent" && (
+                {role === "parent" && !loadingGroups && (
                   <>
                     <label className="block text-xs font-bold text-stone-400 uppercase mt-4 mb-1">
                       Ihre Kinder
                     </label>
 
                     {children.map((child, index) => {
-                      const groupStyles = getGroupStyles(
-                        getGroupById(groups, child.group)
-                      );
+                      const group = displayGroups.find(g => g.id === child.group);
+                      const groupStyles = getGroupStyles(group);
 
                       return (
                         <div
@@ -319,7 +479,7 @@ export default function AuthScreen({ onLogin }) {
 
                           {/* Gruppe */}
                           <div className="grid grid-cols-2 gap-2">
-                            {groups.map((g) => {
+                            {displayGroups.map((g) => {
                               const styles = getGroupStyles(g);
 
                               return (
@@ -396,18 +556,19 @@ export default function AuthScreen({ onLogin }) {
               </>
             )}
 
-            {/* LOGIN / PW */}
+            {/* E-MAIL / PASSWORT */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-stone-400 uppercase mb-1">
-                  Benutzername
+                  E-Mail
                 </label>
                 <input
                   required
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200"
+                  placeholder="name@beispiel.de"
                 />
               </div>
 
@@ -421,6 +582,7 @@ export default function AuthScreen({ onLogin }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200"
+                  minLength={6}
                 />
               </div>
             </div>
@@ -433,9 +595,9 @@ export default function AuthScreen({ onLogin }) {
             )}
 
             <button
-              disabled={loading}
+              disabled={loading || loadingGroups}
               type="submit"
-              className="w-full bg-stone-800 text-white font-bold py-4 rounded-xl hover:bg-stone-900 mt-4 flex justify-center shadow-md"
+              className="w-full bg-stone-800 text-white font-bold py-4 rounded-xl hover:bg-stone-900 mt-4 flex justify-center shadow-md disabled:opacity-50"
             >
               {loading ? (
                 <Loader2 className="animate-spin" />

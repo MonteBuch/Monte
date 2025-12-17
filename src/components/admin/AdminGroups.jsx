@@ -1,5 +1,5 @@
 // src/components/admin/AdminGroups.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 import {
   Edit,
@@ -29,7 +29,8 @@ import {
   BookOpen,
   Star,
   Clover,
-  Rainbow, // ✅ neu: Event-Icon
+  Rainbow,
+  Loader2,
 } from "lucide-react";
 
 import {
@@ -38,12 +39,20 @@ import {
   Draggable,
 } from "@hello-pangea/dnd";
 
-import { StorageService } from "../../lib/storage";
-import { GROUPS } from "../../lib/constants";
+import {
+  fetchGroups,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  reorderGroups,
+  countChildrenInGroup,
+  countTeamInGroup,
+  migrateChildrenToGroup,
+  migrateTeamToGroup,
+} from "../../api/groupApi";
 
 import AddGroupModal from "./groups/AddGroupModal";
 import EditGroupModal from "./groups/EditGroupModal";
-import SaveButton from "../ui/SaveButton";
 
 /* ICON SET */
 export const ICON_SET = [
@@ -107,63 +116,31 @@ const reorder = (list, startIndex, endIndex) => {
 
 export default function AdminGroups() {
   const [groups, setGroups] = useState([]);
-  const [initial, setInitial] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
   const [adding, setAdding] = useState(false);
   const [migrateModal, setMigrateModal] = useState(null);
   const [migrationTarget, setMigrationTarget] = useState("");
 
-  useEffect(() => {
-    const facility = StorageService.getFacilitySettings();
-    const stored = facility?.groups;
-
-    if (Array.isArray(stored) && stored.length > 0) {
-      // ✅ Event-Icon bei bestehenden Daten auf "rainbow" korrigieren
-      const fixed = stored.map((g) =>
-        g.id === "event" ? { ...g, icon: "rainbow" } : g
-      );
-      setGroups(fixed);
-      setInitial(fixed);
-      return;
+  // Gruppen laden
+  const loadGroups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await fetchGroups();
+      setGroups(data || []);
+    } catch (err) {
+      console.error("Gruppen laden fehlgeschlagen:", err);
+    } finally {
+      setLoading(false);
     }
-
-    // Fallback / Initialmapping aus GROUPS
-    const mapped = GROUPS.map((g) => ({
-      id: g.id,
-      name: g.name,
-      color: extractBgClass(g.color),
-      icon:
-        g.id === "erde"
-          ? "globe"
-          : g.id === "feuer"
-          ? "flame"
-          : g.id === "sonne"
-          ? "sun"
-          : g.id === "wasser"
-          ? "droplets"
-          : g.id === "blume"
-          ? "flower2"
-          : g.id === "event"
-          ? "rainbow"
-          : "globe",
-    }));
-
-    setGroups(mapped);
-    setInitial(mapped);
   }, []);
 
-  const changed = JSON.stringify(groups) !== JSON.stringify(initial);
+  useEffect(() => {
+    loadGroups();
+  }, [loadGroups]);
 
-  const save = () => {
-    const facility = StorageService.getFacilitySettings() || {};
-    StorageService.saveFacilitySettings({
-      ...facility,
-      groups,
-    });
-    setInitial(groups);
-  };
-
-  const onDragEnd = (result) => {
+  const onDragEnd = async (result) => {
     if (!result.destination) return;
     const reordered = reorder(
       groups,
@@ -171,71 +148,103 @@ export default function AdminGroups() {
       result.destination.index
     );
     setGroups(reordered);
+
+    // Speichere neue Reihenfolge in Supabase
+    try {
+      await reorderGroups(reordered.map((g) => g.id));
+    } catch (err) {
+      console.error("Reihenfolge speichern fehlgeschlagen:", err);
+    }
   };
 
-  const attemptDelete = (group) => {
-    // ✅ Event ist nicht löschbar
-    if (group.id === "event") return;
+  const attemptDelete = async (group) => {
+    // Event-Gruppe ist nicht löschbar
+    if (group.is_event_group) return;
 
     if (groups.length <= 1) return;
 
-    const users = StorageService.get("users") || [];
+    try {
+      const childCount = await countChildrenInGroup(group.id);
+      const teamCount = await countTeamInGroup(group.id);
 
-    const childCount = users
-      .filter((u) => u.role === "parent")
-      .reduce((sum, u) => {
-        const kids = u.children || [];
-        return sum + kids.filter((c) => c.group === group.id).length;
-      }, 0);
+      if (childCount === 0 && teamCount === 0) {
+        // Direkt löschen
+        await deleteGroup(group.id);
+        setGroups((prev) => prev.filter((g) => g.id !== group.id));
+        return;
+      }
 
-    const teamCount = users.filter(
-      (u) =>
-        (u.role === "team" || u.role === "admin") &&
-        u.primaryGroup === group.id
-    ).length;
-
-    if (childCount === 0 && teamCount === 0) {
-      setGroups((prev) => prev.filter((g) => g.id !== group.id));
-      return;
+      // Migration erforderlich
+      setMigrateModal({
+        groupId: group.id,
+        name: group.name,
+        childCount,
+        teamCount,
+      });
+      setMigrationTarget("");
+    } catch (err) {
+      console.error("Löschen fehlgeschlagen:", err);
+      alert("Fehler beim Löschen: " + err.message);
     }
-
-    setMigrateModal({
-      groupId: group.id,
-      name: group.name,
-      childCount,
-      teamCount,
-    });
-    setMigrationTarget("");
   };
 
-  const confirmMigration = () => {
+  const confirmMigration = async () => {
     const { groupId } = migrateModal;
-    const users = StorageService.get("users") || [];
 
-    const updatedUsers = users.map((u) => {
-      if (u.role === "parent") {
-        const newKids = (u.children || []).map((c) =>
-          c.group === groupId ? { ...c, group: migrationTarget } : c
-        );
-        return { ...u, children: newKids };
-      }
+    setSaving(true);
+    try {
+      // Kinder und Team verschieben
+      await migrateChildrenToGroup(groupId, migrationTarget);
+      await migrateTeamToGroup(groupId, migrationTarget);
 
-      if (
-        (u.role === "team" || u.role === "admin") &&
-        u.primaryGroup === groupId
-      ) {
-        return { ...u, primaryGroup: migrationTarget };
-      }
+      // Gruppe löschen
+      await deleteGroup(groupId);
 
-      return u;
-    });
-
-    StorageService.set("users", updatedUsers);
-
-    setGroups((prev) => prev.filter((g) => g.id !== groupId));
-    setMigrateModal(null);
-    setMigrationTarget("");
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setMigrateModal(null);
+      setMigrationTarget("");
+    } catch (err) {
+      console.error("Migration fehlgeschlagen:", err);
+      alert("Fehler bei der Migration: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const handleAddGroup = async (newGroup) => {
+    try {
+      const created = await createGroup({
+        ...newGroup,
+        position: groups.length,
+      });
+      setGroups((prev) => [...prev, created]);
+      setAdding(false);
+    } catch (err) {
+      console.error("Gruppe erstellen fehlgeschlagen:", err);
+      alert("Fehler beim Erstellen: " + err.message);
+    }
+  };
+
+  const handleUpdateGroup = async (updated) => {
+    try {
+      await updateGroup(updated.id, updated);
+      setGroups((arr) =>
+        arr.map((g) => (g.id === updated.id ? { ...g, ...updated } : g))
+      );
+      setEditing(null);
+    } catch (err) {
+      console.error("Gruppe aktualisieren fehlgeschlagen:", err);
+      alert("Fehler beim Aktualisieren: " + err.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 flex justify-center">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -295,7 +304,7 @@ export default function AdminGroups() {
 
                       {/* Rechts: Edit / Delete – Event ist geschützt */}
                       <div className="flex items-center gap-2">
-                        {g.id !== "event" && (
+                        {!g.is_event_group && (
                           <button
                             onClick={() => setEditing(g)}
                             className="p-2 bg-stone-100 border border-stone-200 rounded-lg text-stone-600 hover:bg-stone-200"
@@ -304,7 +313,7 @@ export default function AdminGroups() {
                           </button>
                         )}
 
-                        {g.id !== "event" && (
+                        {!g.is_event_group && (
                           <button
                             onClick={() => attemptDelete(g)}
                             disabled={groups.length <= 1}
@@ -329,21 +338,12 @@ export default function AdminGroups() {
         </Droppable>
       </DragDropContext>
 
-      <SaveButton
-        isDirty={changed}
-        onClick={save}
-        label="Änderungen speichern"
-      />
-
       {adding && (
         <AddGroupModal
           ICON_SET={ICON_SET}
           COLOR_SET={COLOR_SET}
           onCancel={() => setAdding(false)}
-          onSave={(newGroup) => {
-            setGroups((prev) => [...prev, newGroup]);
-            setAdding(false);
-          }}
+          onSave={handleAddGroup}
         />
       )}
 
@@ -353,12 +353,7 @@ export default function AdminGroups() {
           ICON_SET={ICON_SET}
           COLOR_SET={COLOR_SET}
           onCancel={() => setEditing(null)}
-          onSave={(updated) => {
-            setGroups((arr) =>
-              arr.map((g) => (g.id === updated.id ? updated : g))
-            );
-            setEditing(null);
-          }}
+          onSave={handleUpdateGroup}
         />
       )}
 

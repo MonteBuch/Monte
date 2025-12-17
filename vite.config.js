@@ -7,7 +7,7 @@ export default defineConfig({
   publicDir: 'public', // Ordner mit index.html
   server: {
     port: 5173,
-    open: true
+    open: false
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json']

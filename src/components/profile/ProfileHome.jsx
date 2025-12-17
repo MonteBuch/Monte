@@ -10,9 +10,10 @@ import {
   LogOut,
 } from "lucide-react";
 import ProfileSection from "./ProfileSection";
-import { StorageService } from "../../lib/storage";
-import { GROUPS } from "../../lib/constants";
+import { supabase } from "../../api/supabaseClient";
+import { fetchGroups } from "../../api/groupApi";
 import { getTodayBirthdaysForUser } from "../../lib/notificationTriggers";
+import { getGroupStyles } from "../../utils/groupUtils";
 
 export default function ProfileHome({ user, onNavigate, onLogout }) {
   const isAdmin = user.role === "admin";
@@ -21,6 +22,12 @@ export default function ProfileHome({ user, onNavigate, onLogout }) {
 
   const [birthdaysToday, setBirthdaysToday] = useState([]);
   const [showBirthdayBox, setShowBirthdayBox] = useState(false);
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => {
+    // Gruppen laden für Geburtstags-Anzeige
+    fetchGroups().then(setGroups).catch(console.error);
+  }, []);
 
   useEffect(() => {
     if (!isTeam) {
@@ -28,20 +35,34 @@ export default function ProfileHome({ user, onNavigate, onLogout }) {
       setShowBirthdayBox(false);
       return;
     }
-    const todays = getTodayBirthdaysForUser(user);
-    setBirthdaysToday(todays);
 
-    const allPrefs = StorageService.get("notification_prefs") || {};
-    const prefs = allPrefs[user.username] || {};
-    const enabled = prefs.birthdays !== "off";
-    setShowBirthdayBox(enabled && todays.length > 0);
+    async function loadBirthdays() {
+      try {
+        const todays = await getTodayBirthdaysForUser(user);
+        setBirthdaysToday(todays);
+
+        // Benachrichtigungs-Einstellung prüfen
+        const { data: prefs } = await supabase
+          .from("notification_preferences")
+          .select("preference")
+          .eq("user_id", user.id)
+          .eq("category", "birthdays")
+          .single();
+
+        const enabled = !prefs || prefs.preference !== "off";
+        setShowBirthdayBox(enabled && todays.length > 0);
+      } catch (err) {
+        console.error("Geburtstage laden fehlgeschlagen:", err);
+      }
+    }
+    loadBirthdays();
   }, [isTeam, user]);
 
   const openAdminTab = () => {
     window.dispatchEvent(new CustomEvent("openAdminViaSettings"));
   };
 
-  const groupById = (id) => GROUPS.find((g) => g.id === id);
+  const groupById = (id) => groups.find((g) => g.id === id);
 
   return (
     <div className="space-y-5">
@@ -113,18 +134,19 @@ export default function ProfileHome({ user, onNavigate, onLogout }) {
           <ul className="mt-2 space-y-1">
             {birthdaysToday.map((b, idx) => {
               const g = groupById(b.groupId);
+              const styles = g ? getGroupStyles(g) : null;
               return (
                 <li
                   key={`${b.childName}-${idx}`}
                   className="flex items-center justify-between text-sm"
                 >
                   <span className="text-stone-700">{b.childName}</span>
-                  {g && (
+                  {styles && (
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-white ${g.color}`}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.chipClass}`}
                     >
-                      {g.icon}
-                      <span>{g.name}</span>
+                      <styles.Icon size={10} />
+                      <span>{styles.name}</span>
                     </span>
                   )}
                 </li>

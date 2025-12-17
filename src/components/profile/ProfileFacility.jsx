@@ -1,10 +1,41 @@
 // src/components/profile/ProfileFacility.jsx
-import React from "react";
-import { ArrowLeft, MapPin, Phone, Mail, Clock, Info } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import React, { useEffect, useState } from "react";
+import { ArrowLeft, MapPin, Phone, Mail, Clock, Info, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 
 export default function ProfileFacility({ onBack }) {
-  const facility = StorageService.getFacilitySettings() || {};
+  const [facility, setFacility] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadFacility() {
+      try {
+        const { data, error } = await supabase
+          .from("facilities")
+          .select("*")
+          .eq("id", FACILITY_ID)
+          .single();
+
+        if (error) throw error;
+        setFacility(data || {});
+      } catch (err) {
+        console.error("Facility laden fehlgeschlagen:", err);
+        setFacility({});
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadFacility();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -84,7 +115,7 @@ export default function ProfileFacility({ onBack }) {
         )}
 
         {/* Öffnungszeiten */}
-        {facility.opening && (
+        {facility.opening_hours && (
           <div className="flex items-start gap-3">
             <Clock size={20} className="text-stone-500 mt-1" />
             <div>
@@ -92,14 +123,14 @@ export default function ProfileFacility({ onBack }) {
                 Öffnungszeiten
               </p>
               <p className="text-sm text-stone-800 mt-1">
-                {facility.opening}
+                {facility.opening_hours}
               </p>
             </div>
           </div>
         )}
 
         {/* Hinweistext */}
-        {facility.infoText && (
+        {facility.info_text && (
           <div className="flex items-start gap-3">
             <Info size={20} className="text-stone-500 mt-1" />
             <div>
@@ -107,7 +138,7 @@ export default function ProfileFacility({ onBack }) {
                 Hinweise
               </p>
               <p className="text-sm text-stone-800 mt-1 whitespace-pre-wrap">
-                {facility.infoText}
+                {facility.info_text}
               </p>
             </div>
           </div>

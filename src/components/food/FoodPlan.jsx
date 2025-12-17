@@ -1,10 +1,11 @@
 // src/components/food/FoodPlan.jsx
 
-import React, { useState, useEffect } from "react";
-import { Pencil, Check, Utensils } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Pencil, Check, Utensils, Loader2 } from "lucide-react";
 import DayCard from "./DayCard";
 import MealSelectionModal from "./MealSelectionModal";
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 
 // --------------------------------------------
 // WEEKDAY CONSTANTS
@@ -48,6 +49,21 @@ function getCurrentWeekRange() {
 }
 
 // --------------------------------------------
+// HELPER: Get current week key (ISO format)
+// --------------------------------------------
+function getCurrentWeekKey() {
+  const today = new Date();
+  const year = today.getFullYear();
+
+  // ISO week calculation
+  const jan1 = new Date(year, 0, 1);
+  const days = Math.floor((today - jan1) / (24 * 60 * 60 * 1000));
+  const weekNum = Math.ceil((days + jan1.getDay() + 1) / 7);
+
+  return `${year}-W${weekNum.toString().padStart(2, "0")}`;
+}
+
+// --------------------------------------------
 // MAIN COMPONENT
 // --------------------------------------------
 export default function FoodPlan({ isAdmin }) {
@@ -58,6 +74,7 @@ export default function FoodPlan({ isAdmin }) {
     snack: [],
   });
 
+  const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -68,30 +85,75 @@ export default function FoodPlan({ isAdmin }) {
   const [lovMealType, setLovMealType] = useState(null);
   const [lovDayKey, setLovDayKey] = useState(null);
 
+  const weekKey = getCurrentWeekKey();
+
+  // Load meal plan from Supabase
+  const loadMealPlan = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("meal_plans")
+        .select("*")
+        .eq("facility_id", FACILITY_ID)
+        .eq("week_key", weekKey);
+
+      if (error) throw error;
+
+      const fullPlan = {};
+      WEEKDAYS.forEach(({ key }) => {
+        const dayData = data?.find((d) => d.day_key === key);
+        fullPlan[key] = {
+          breakfast: dayData?.breakfast || "",
+          lunch: dayData?.lunch || "",
+          snack: dayData?.snack || "",
+          allergyNote: dayData?.allergy_note || "",
+        };
+      });
+
+      setMealPlan(fullPlan);
+    } catch (err) {
+      console.error("Speiseplan laden fehlgeschlagen:", err);
+      // Fallback: leerer Plan
+      const emptyPlan = {};
+      WEEKDAYS.forEach(({ key }) => {
+        emptyPlan[key] = { ...EMPTY_DAY };
+      });
+      setMealPlan(emptyPlan);
+    }
+  }, [weekKey]);
+
+  // Load meal options from Supabase
+  const loadMealOptions = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("meal_options")
+        .select("*")
+        .eq("facility_id", FACILITY_ID)
+        .order("position");
+
+      if (error) throw error;
+
+      const options = { breakfast: [], lunch: [], snack: [] };
+      (data || []).forEach((opt) => {
+        if (options[opt.meal_type]) {
+          options[opt.meal_type].push(opt.name);
+        }
+      });
+
+      setLovOptions(options);
+    } catch (err) {
+      console.error("Mahlzeit-Optionen laden fehlgeschlagen:", err);
+    }
+  }, []);
+
   // Load on mount
   useEffect(() => {
-    const storedPlan = StorageService.getMealPlan() || {};
-    const storedLov =
-      StorageService.get("meal_lov") ||
-      StorageService.get("lov_options") ||
-      {};
-
-    const fullPlan = {};
-    WEEKDAYS.forEach(({ key }) => {
-      fullPlan[key] = {
-        ...EMPTY_DAY,
-        ...(storedPlan[key] || {}),
-      };
-    });
-
-    setMealPlan(fullPlan);
-
-    setLovOptions({
-      breakfast: storedLov.breakfast || [],
-      lunch: storedLov.lunch || [],
-      snack: storedLov.snack || [],
-    });
-  }, []);
+    async function loadAll() {
+      setLoading(true);
+      await Promise.all([loadMealPlan(), loadMealOptions()]);
+      setLoading(false);
+    }
+    loadAll();
+  }, [loadMealPlan, loadMealOptions]);
 
   // ------------------------------------------------
   // UPDATE MEAL VALUES
@@ -134,59 +196,122 @@ export default function FoodPlan({ isAdmin }) {
     setLovOpen(false);
   };
 
-  const handleLovAdd = (entry) => {
-    setLovOptions((prev) => ({
-      ...prev,
-      [lovMealType]: [...(prev[lovMealType] || []), entry],
-    }));
-    setDirty(true);
-  };
+  const handleLovAdd = async (entry) => {
+    try {
+      const currentOptions = lovOptions[lovMealType] || [];
+      const position = currentOptions.length;
 
-  const handleLovDelete = (option) => {
-    setLovOptions((prev) => ({
-      ...prev,
-      [lovMealType]: (prev[lovMealType] || []).filter((o) => o !== option),
-    }));
+      const { error } = await supabase
+        .from("meal_options")
+        .insert({
+          facility_id: FACILITY_ID,
+          meal_type: lovMealType,
+          name: entry,
+          position,
+        });
 
-    // Remove from meal plan entries
-    setMealPlan((prev) => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach((day) => {
-        if (updated[day][lovMealType] === option) {
-          updated[day][lovMealType] = "";
-        }
-      });
-      return updated;
-    });
+      if (error) throw error;
 
-    setDirty(true);
-  };
-
-  const handleLovReorder = (fromIndex, toIndex) => {
-    if (lovMealType == null) return;
-    setLovOptions((prev) => {
-      const list = [...(prev[lovMealType] || [])];
-      const [moved] = list.splice(fromIndex, 1);
-      list.splice(toIndex, 0, moved);
-      return {
+      setLovOptions((prev) => ({
         ...prev,
-        [lovMealType]: list,
-      };
-    });
+        [lovMealType]: [...(prev[lovMealType] || []), entry],
+      }));
+      setDirty(true);
+    } catch (err) {
+      console.error("Option hinzufügen fehlgeschlagen:", err);
+      alert("Fehler beim Hinzufügen: " + err.message);
+    }
+  };
+
+  const handleLovDelete = async (option) => {
+    try {
+      const { error } = await supabase
+        .from("meal_options")
+        .delete()
+        .eq("facility_id", FACILITY_ID)
+        .eq("meal_type", lovMealType)
+        .eq("name", option);
+
+      if (error) throw error;
+
+      setLovOptions((prev) => ({
+        ...prev,
+        [lovMealType]: (prev[lovMealType] || []).filter((o) => o !== option),
+      }));
+
+      // Remove from meal plan entries
+      setMealPlan((prev) => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach((day) => {
+          if (updated[day][lovMealType] === option) {
+            updated[day][lovMealType] = "";
+          }
+        });
+        return updated;
+      });
+
+      setDirty(true);
+    } catch (err) {
+      console.error("Option löschen fehlgeschlagen:", err);
+      alert("Fehler beim Löschen: " + err.message);
+    }
+  };
+
+  const handleLovReorder = async (fromIndex, toIndex) => {
+    if (lovMealType == null) return;
+
+    const list = [...(lovOptions[lovMealType] || [])];
+    const [moved] = list.splice(fromIndex, 1);
+    list.splice(toIndex, 0, moved);
+
+    // Optimistic update
+    setLovOptions((prev) => ({
+      ...prev,
+      [lovMealType]: list,
+    }));
     setDirty(true);
+
+    // Update positions in database
+    try {
+      for (let i = 0; i < list.length; i++) {
+        await supabase
+          .from("meal_options")
+          .update({ position: i })
+          .eq("facility_id", FACILITY_ID)
+          .eq("meal_type", lovMealType)
+          .eq("name", list[i]);
+      }
+    } catch (err) {
+      console.error("Reihenfolge speichern fehlgeschlagen:", err);
+    }
   };
 
   // ------------------------------------------------
   // SAVE (with animation)
   // ------------------------------------------------
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!dirty) return;
 
     setSaveState("saving");
 
-    setTimeout(() => {
-      StorageService.saveMealPlan(mealPlan);
-      StorageService.set("meal_lov", lovOptions);
+    try {
+      // Save meal plan for each day
+      for (const { key: dayKey } of WEEKDAYS) {
+        const dayData = mealPlan[dayKey] || EMPTY_DAY;
+
+        await supabase
+          .from("meal_plans")
+          .upsert({
+            facility_id: FACILITY_ID,
+            week_key: weekKey,
+            day_key: dayKey,
+            breakfast: dayData.breakfast || "",
+            lunch: dayData.lunch || "",
+            snack: dayData.snack || "",
+            allergy_note: dayData.allergyNote || "",
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "facility_id,week_key,day_key" });
+      }
 
       setSaveState("saved");
 
@@ -197,7 +322,11 @@ export default function FoodPlan({ isAdmin }) {
         setEditMode(false);
       }, 1200);
 
-    }, 600);
+    } catch (err) {
+      console.error("Speichern fehlgeschlagen:", err);
+      alert("Fehler beim Speichern: " + err.message);
+      setSaveState("idle");
+    }
   };
 
   const weekRange = getCurrentWeekRange();
@@ -205,6 +334,14 @@ export default function FoodPlan({ isAdmin }) {
   // ------------------------------------------------
   // RENDER
   // ------------------------------------------------
+  if (loading) {
+    return (
+      <div className="bg-white rounded-3xl shadow-sm border border-[#f2eee4] px-5 py-8 flex justify-center">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
+
   return (
     <>
       {/* HEADER */}

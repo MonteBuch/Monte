@@ -1,24 +1,42 @@
 // src/lib/notificationTriggers.js
-import { StorageService } from "./storage";
+import { supabase } from "../api/supabaseClient";
+import { FACILITY_ID } from "./constants";
 
 /**
  * Findet alle Kinder, die HEUTE Geburtstag haben und in der Stammgruppe
  * des Team-Users sind.
  */
-export function getTodayBirthdaysForUser(user) {
+export async function getTodayBirthdaysForUser(user) {
   if (!user || user.role !== "team" || !user.primaryGroup) return [];
 
-  const allUsers = StorageService.get("users") || [];
   const today = new Date();
   const todayMonth = today.getMonth() + 1;
   const todayDay = today.getDate();
 
-  const result = [];
+  try {
+    // Kinder aus Supabase laden mit Eltern-Info
+    const { data: children, error } = await supabase
+      .from("children")
+      .select(`
+        id,
+        first_name,
+        birthday,
+        group_id,
+        user_id,
+        profiles!children_user_id_fkey (
+          full_name
+        )
+      `)
+      .eq("facility_id", FACILITY_ID)
+      .eq("group_id", user.primaryGroup)
+      .not("birthday", "is", null);
 
-  allUsers.forEach((u) => {
-    const kids = u.children || [];
-    kids.forEach((child) => {
-      if (!child.birthday || !child.group) return;
+    if (error) throw error;
+
+    const result = [];
+
+    (children || []).forEach((child) => {
+      if (!child.birthday) return;
 
       const bd = new Date(child.birthday);
       if (Number.isNaN(bd.getTime())) return;
@@ -26,23 +44,23 @@ export function getTodayBirthdaysForUser(user) {
       const bm = bd.getMonth() + 1;
       const bdDay = bd.getDate();
 
-      if (
-        bm === todayMonth &&
-        bdDay === todayDay &&
-        child.group === user.primaryGroup
-      ) {
+      if (bm === todayMonth && bdDay === todayDay) {
         result.push({
-          childName: child.name,
-          groupId: child.group,
-          parentName: u.name || u.username,
+          childName: child.first_name,
+          groupId: child.group_id,
+          parentName: child.profiles?.full_name || "Unbekannt",
         });
       }
     });
-  });
 
-  return result;
+    return result;
+  } catch (err) {
+    console.error("Geburtstage laden fehlgeschlagen:", err);
+    return [];
+  }
 }
 
-export function hasTodayBirthdaysForUser(user) {
-  return getTodayBirthdaysForUser(user).length > 0;
+export async function hasTodayBirthdaysForUser(user) {
+  const birthdays = await getTodayBirthdaysForUser(user);
+  return birthdays.length > 0;
 }

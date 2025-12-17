@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { StorageService } from "../../lib/storage";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
-import { CheckCircle, Undo2, Trash2, CalendarDays } from "lucide-react";
+import { CheckCircle, Undo2, Trash2, CalendarDays, Loader2 } from "lucide-react";
 
 const REASON_STYLES = {
   krankheit: "bg-amber-100 text-amber-900",
@@ -11,47 +12,127 @@ const REASON_STYLES = {
 };
 
 export default function AdminAbsenceDashboard({ user }) {
-  const facility = StorageService.getFacilitySettings();
-  const groups = (facility?.groups || []).filter((g) => g.id !== "event");
-
-  const [groupId, setGroupId] = useState(user.primaryGroup || groups[0]?.id);
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [groupId, setGroupId] = useState(null);
   const [activeTab, setActiveTab] = useState("new");
   const [entries, setEntries] = useState([]);
+  const [allAbsences, setAllAbsences] = useState([]);
 
-  const load = () => {
-    const all = StorageService.get("absences") || [];
-    const filtered = all.filter((e) => e.groupId === groupId);
-    setEntries(filtered);
-  };
+  // Gruppen laden
+  useEffect(() => {
+    async function loadGroups() {
+      try {
+        const { data } = await supabase
+          .from("groups")
+          .select("*")
+          .eq("facility_id", FACILITY_ID)
+          .eq("is_event_group", false)
+          .order("position");
+
+        const loadedGroups = data || [];
+        setGroups(loadedGroups);
+
+        // Initial groupId setzen
+        if (!groupId && loadedGroups.length > 0) {
+          setGroupId(user.primaryGroup || loadedGroups[0]?.id);
+        }
+      } catch (err) {
+        console.error("Gruppen laden fehlgeschlagen:", err);
+      }
+    }
+    loadGroups();
+  }, []);
+
+  // Absences laden
+  const loadAbsences = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from("absences")
+        .select("*")
+        .eq("facility_id", FACILITY_ID)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      const formatted = (data || []).map((a) => ({
+        id: a.id,
+        childId: a.child_id,
+        childName: a.child_name,
+        groupId: a.group_id,
+        type: a.type,
+        dateFrom: a.date_from,
+        dateTo: a.date_to,
+        reason: a.reason,
+        otherText: a.other_text,
+        status: a.status,
+        createdAt: a.created_at,
+      }));
+
+      setAllAbsences(formatted);
+    } catch (err) {
+      console.error("Absences laden fehlgeschlagen:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (groupId) load();
-  }, [groupId]);
+    loadAbsences();
+  }, [loadAbsences]);
 
-  const markRead = (id) => {
-    const all = StorageService.get("absences") || [];
-    const idx = all.findIndex((e) => e.id === id);
-    if (idx === -1) return;
-    all[idx].status = "read";
-    StorageService.set("absences", all);
-    load();
+  // Entries für aktuelle Gruppe filtern
+  useEffect(() => {
+    if (groupId) {
+      const filtered = allAbsences.filter((e) => e.groupId === groupId);
+      setEntries(filtered);
+    }
+  }, [groupId, allAbsences]);
+
+  const markRead = async (id) => {
+    try {
+      const { error } = await supabase
+        .from("absences")
+        .update({ status: "read", updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (error) throw error;
+      loadAbsences();
+    } catch (err) {
+      console.error("Status ändern fehlgeschlagen:", err);
+    }
   };
 
-  const markUnread = (id) => {
-    const all = StorageService.get("absences") || [];
-    const idx = all.findIndex((e) => e.id === id);
-    if (idx === -1) return;
-    all[idx].status = "new";
-    StorageService.set("absences", all);
-    load();
+  const markUnread = async (id) => {
+    try {
+      const { error } = await supabase
+        .from("absences")
+        .update({ status: "new", updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (error) throw error;
+      loadAbsences();
+    } catch (err) {
+      console.error("Status ändern fehlgeschlagen:", err);
+    }
   };
 
-  const remove = (id) => {
+  const remove = async (id) => {
     if (!confirm("Meldung löschen?")) return;
-    const all = StorageService.get("absences") || [];
-    const filtered = all.filter((e) => e.id !== id);
-    StorageService.set("absences", filtered);
-    load();
+
+    try {
+      const { error } = await supabase
+        .from("absences")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+      loadAbsences();
+    } catch (err) {
+      console.error("Löschen fehlgeschlagen:", err);
+      alert("Fehler beim Löschen: " + err.message);
+    }
   };
 
   const newEntries = entries
@@ -73,14 +154,15 @@ export default function AdminAbsenceDashboard({ user }) {
   );
 
   const unreadCountByGroup = useMemo(() => {
-    const all = StorageService.get("absences") || [];
-    return all.reduce((acc, e) => {
-      if (e.groupId === "event") return acc;
+    return allAbsences.reduce((acc, e) => {
+      // Event-Gruppen ausschließen
+      const isEventGroup = groups.find((g) => g.id === e.groupId)?.is_event_group;
+      if (isEventGroup) return acc;
       if (e.status !== "new") return acc;
       acc[e.groupId] = (acc[e.groupId] || 0) + 1;
       return acc;
     }, {});
-  }, [entries]);
+  }, [allAbsences, groups]);
 
   function formatDate(iso) {
     return new Date(iso).toLocaleDateString("de-DE");
@@ -157,9 +239,17 @@ export default function AdminAbsenceDashboard({ user }) {
     );
   };
 
+  if (loading && groups.length === 0) {
+    return (
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-100 flex justify-center">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {/* ✅ NUR DER HEADER (KEIN EXTRA „ABWESENHEITEN“) */}
+      {/* ✅ NUR DER HEADER (KEIN EXTRA „ABWESENHEITEN") */}
       <div
         className="p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3"
         style={{ backgroundColor: currentGroup?.headerColor }}

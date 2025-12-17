@@ -1,8 +1,7 @@
 // src/components/group/ListItems.jsx
 import React, { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { supabase } from "../../api/supabaseClient"; // ⬅️ NEU
-import { StorageService } from "../../lib/storage";   // bleibt für Namenslogik
+import { supabase } from "../../api/supabaseClient";
 
 /**
  * ListItems:
@@ -20,17 +19,12 @@ export default function ListItems({
 }) {
   const [newItem, setNewItem] = useState("");
 
-  // Nur für Anzeigezwecke weiter genutzt:
-  const allUsers = StorageService.get("users") || [];
-
-  const getChildNameForUserInGroup = (username, groupId) => {
-    const u = allUsers.find((x) => x.username === username);
-    if (!u || !Array.isArray(u.children)) return username;
-
-    const child =
-      u.children.find((c) => c.group === groupId) || u.children[0];
-
-    return child?.name || username;
+  // Username-Anzeige: zeigt den assignedName wenn vorhanden, sonst Username
+  const getDisplayName = (username, assignedName) => {
+    // Wenn ein Name gespeichert wurde, diesen anzeigen
+    if (assignedName) return assignedName;
+    // Sonst Username als Fallback
+    return username;
   };
 
   // ────────────────────────────────────────────────
@@ -61,7 +55,20 @@ export default function ListItems({
     const item = { ...items[itemIndex] };
     const me = user.username;
 
-    item.assignedTo = item.assignedTo === me ? null : me;
+    // Kindername des aktuellen Users ermitteln
+    const myChildName = Array.isArray(user.children) && user.children.length > 0
+      ? user.children[0]?.name
+      : null;
+
+    if (item.assignedTo === me) {
+      // Abgeben
+      item.assignedTo = null;
+      item.assignedName = null;
+    } else {
+      // Übernehmen
+      item.assignedTo = me;
+      item.assignedName = myChildName;
+    }
 
     items[itemIndex] = item;
 
@@ -112,10 +119,10 @@ export default function ListItems({
           const assigned = item.assignedTo;
           const isMine = assigned === user.username;
 
-          const assignedName = assigned
+          const displayName = assigned
             ? isMine
               ? "Du"
-              : getChildNameForUserInGroup(assigned, group.id)
+              : getDisplayName(assigned, item.assignedName)
             : isAdmin
             ? "—"
             : "Übernehmen";
@@ -138,7 +145,7 @@ export default function ListItems({
 <div className="flex items-center gap-2 text-[10px] text-stone-500">
   {/* Textanzeige: Du / Name des Kindes / nichts bei freien Einträgen */}
   {assigned && (
-    <span>{assignedName}</span>
+    <span>{displayName}</span>
   )}
 
   {/* Eltern – übernehmen (frei) oder abgeben (eigener Eintrag) */}

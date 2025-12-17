@@ -5,96 +5,93 @@ import {
   Trash2,
   RefreshCw,
   Download,
-  Upload,
   AlertTriangle,
   Database,
+  Loader2,
 } from "lucide-react";
 
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 
 export default function SystemTools({ onBack }) {
   const [confirmReset, setConfirmReset] = useState(false);
-  const [confirmUserWipe, setConfirmUserWipe] = useState(false);
-  const [importError, setImportError] = useState("");
-  const [importSuccess, setImportSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   /* -------------------------------------------------------------
-      DATEN EXPORTIEREN
+      DATEN EXPORTIEREN (aus Supabase)
     ------------------------------------------------------------- */
-  const exportData = () => {
-    const users = StorageService.get("users") || [];
-    const facility = StorageService.getFacilitySettings() || {};
-    const data = {
-      users,
-      facility,
-      timestamp: new Date().toISOString(),
-    };
+  const exportData = async () => {
+    setLoading(true);
+    try {
+      // Facility laden
+      const { data: facility } = await supabase
+        .from("facilities")
+        .select("*")
+        .eq("id", FACILITY_ID)
+        .single();
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: "application/json",
-    });
+      // Profile laden
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("facility_id", FACILITY_ID);
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `kita-backup-${new Date()
-      .toLocaleDateString("de-DE")
-      .replace(/\./g, "-")}.json`;
-    a.click();
+      // Kinder laden
+      const { data: children } = await supabase
+        .from("children")
+        .select("*")
+        .eq("facility_id", FACILITY_ID);
+
+      // Gruppen laden
+      const { data: groups } = await supabase
+        .from("groups")
+        .select("*")
+        .eq("facility_id", FACILITY_ID);
+
+      // News laden
+      const { data: news } = await supabase
+        .from("news")
+        .select("*")
+        .eq("facility_id", FACILITY_ID);
+
+      const data = {
+        facility,
+        profiles,
+        children,
+        groups,
+        news,
+        timestamp: new Date().toISOString(),
+        version: "supabase-export-v1",
+      };
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kita-backup-${new Date()
+        .toLocaleDateString("de-DE")
+        .replace(/\./g, "-")}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export fehlgeschlagen:", err);
+      alert("Export fehlgeschlagen: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   /* -------------------------------------------------------------
-      DATEN IMPORTIEREN
+      LOKALEN CACHE LÖSCHEN (localStorage)
     ------------------------------------------------------------- */
-  const importData = (file) => {
-    setImportError("");
-    setImportSuccess(false);
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target.result);
-
-        if (!json.users || !json.facility) {
-          throw new Error("Ungültige Datei. Es fehlen Schlüssel.");
-        }
-
-        StorageService.set("users", json.users);
-        StorageService.setFacilitySettings(json.facility);
-
-        setImportSuccess(true);
-      } catch (err) {
-        setImportError(err.message);
-      }
-    };
-
-    reader.readAsText(file);
-  };
-
-  /* -------------------------------------------------------------
-      STORAGE RESET (Facility + Users löschen)
-    ------------------------------------------------------------- */
-  const resetAll = () => {
-    StorageService.set("users", []);
-    StorageService.setFacilitySettings({});
-    sessionStorage.clear();
+  const clearLocalCache = () => {
     localStorage.clear();
-    setConfirmReset(false);
-    alert("Alle App-Daten wurden vollständig zurückgesetzt.");
-  };
-
-  /* -------------------------------------------------------------
-      ALLE BENUTZER LÖSCHEN (aber SYSTEM intakt lassen)
-    ------------------------------------------------------------- */
-  const wipeUsers = () => {
-    const facility = StorageService.getFacilitySettings() || {};
-    StorageService.set("users", []);
-
-    // Facility-Einstellungen bleiben erhalten
-    StorageService.setFacilitySettings(facility);
-
-    setConfirmUserWipe(false);
-    alert("Alle Benutzerkonten wurden gelöscht.");
+    sessionStorage.clear();
+    alert("Lokaler Cache wurde gelöscht. Die Seite wird neu geladen.");
+    window.location.reload();
   };
 
   return (
@@ -112,7 +109,7 @@ export default function SystemTools({ onBack }) {
 
       <p className="text-sm text-stone-600 leading-snug">
         Werkzeuge zur Verwaltung und Sicherung der App-Daten.
-        Ideal für Wartung, Systemwechsel oder Entwicklung.
+        Die Daten werden in Supabase gespeichert.
       </p>
 
       {/* EXPORT */}
@@ -122,144 +119,79 @@ export default function SystemTools({ onBack }) {
           <div>
             <p className="font-semibold text-stone-800">Daten exportieren</p>
             <p className="text-[12px] text-stone-500">
-              Nutzer & Einrichtung als Backup speichern
+              Alle Daten als JSON-Backup speichern
             </p>
           </div>
         </div>
 
         <button
           onClick={exportData}
-          className="w-full py-2 mt-2 rounded-xl bg-amber-500 text-white font-bold text-sm hover:bg-amber-600 active:scale-[0.98]"
+          disabled={loading}
+          className="w-full py-2 mt-2 rounded-xl bg-amber-500 text-white font-bold text-sm hover:bg-amber-600 active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
         >
-          Backup herunterladen
+          {loading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Exportiere...
+            </>
+          ) : (
+            "Backup herunterladen"
+          )}
         </button>
       </div>
 
-      {/* IMPORT */}
+      {/* CACHE LÖSCHEN */}
       <div className="bg-white p-5 border border-stone-200 rounded-2xl shadow-sm space-y-3">
         <div className="flex items-center gap-3">
-          <Upload size={22} className="text-blue-600" />
+          <RefreshCw size={22} className="text-blue-600" />
           <div>
-            <p className="font-semibold text-stone-800">Daten importieren</p>
+            <p className="font-semibold text-stone-800">Lokalen Cache löschen</p>
             <p className="text-[12px] text-stone-500">
-              Nur JSON-Backups aus der App verwenden
-            </p>
-          </div>
-        </div>
-
-        <input
-          type="file"
-          accept="application/json"
-          onChange={(e) => importData(e.target.files[0])}
-          className="w-full mt-2 text-sm"
-        />
-
-        {importError && (
-          <p className="text-xs text-red-600 mt-1">{importError}</p>
-        )}
-
-        {importSuccess && (
-          <p className="text-xs text-green-600 mt-1">
-            Daten erfolgreich importiert!
-          </p>
-        )}
-      </div>
-
-      {/* NUR BENUTZER LÖSCHEN */}
-      <div className="bg-white p-5 border border-stone-200 rounded-2xl shadow-sm space-y-3">
-        <div className="flex items-center gap-3">
-          <Database size={22} className="text-pink-600" />
-          <div>
-            <p className="font-semibold text-stone-800">
-              Alle Benutzerkonten löschen
-            </p>
-            <p className="text-[12px] text-stone-500">
-              Einrichtungsdaten bleiben erhalten
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setConfirmUserWipe(true)}
-          className="w-full py-2 mt-2 rounded-xl bg-red-500 text-white font-bold text-sm hover:bg-red-600 active:scale-[0.98]"
-        >
-          Benutzer löschen
-        </button>
-      </div>
-
-      {/* KOMPLETTER RESET */}
-      <div className="bg-white p-5 border border-stone-200 rounded-2xl shadow-sm space-y-3">
-        <div className="flex items-center gap-3">
-          <RefreshCw size={22} className="text-red-500" />
-          <div>
-            <p className="font-semibold text-stone-800">
-              App vollständig zurücksetzen
-            </p>
-            <p className="text-[12px] text-stone-500">
-              Entfernt ALLE Benutzer + Einrichtungseinstellungen
+              Löscht gespeicherte Sessions und Cache-Daten
             </p>
           </div>
         </div>
 
         <button
           onClick={() => setConfirmReset(true)}
-          className="w-full py-2 mt-2 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 active:scale-[0.98]"
+          className="w-full py-2 mt-2 rounded-xl bg-blue-500 text-white font-bold text-sm hover:bg-blue-600 active:scale-[0.98]"
         >
-          Gesamten Speicher löschen
+          Cache löschen
         </button>
       </div>
 
-      {/* CONFIRM: USER WIPE */}
-      {confirmUserWipe && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-2xl max-w-sm w-full space-y-4 border border-stone-200 shadow-xl">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-red-600" />
-              <h3 className="font-bold text-sm text-stone-800">
-                Benutzerkonten löschen?
-              </h3>
-            </div>
-
-            <p className="text-sm text-stone-600">
-              Möchten Sie wirklich <strong>alle Benutzerkonten</strong> löschen?
-              Diese Aktion kann nicht rückgängig gemacht werden.
+      {/* INFO */}
+      <div className="bg-amber-50 p-4 border border-amber-200 rounded-2xl">
+        <div className="flex items-start gap-3">
+          <Database size={20} className="text-amber-600 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm text-stone-800">
+              Supabase-Datenbank
             </p>
-
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => setConfirmUserWipe(false)}
-                className="flex-1 py-2 rounded-xl bg-stone-200 text-stone-700 text-sm font-semibold"
-              >
-                Abbrechen
-              </button>
-              <button
-                onClick={wipeUsers}
-                className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-bold"
-              >
-                Löschen
-              </button>
-            </div>
+            <p className="text-[12px] text-stone-600 mt-1">
+              Alle Benutzerdaten werden sicher in Supabase gespeichert.
+              Für Datenlöschung oder erweiterte Verwaltung nutze das
+              Supabase Dashboard.
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* CONFIRM: FULL RESET */}
+      {/* CONFIRM: CACHE LÖSCHEN */}
       {confirmReset && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white p-6 rounded-2xl max-w-sm w-full space-y-4 border border-stone-200 shadow-xl">
             <div className="flex items-center gap-2">
-              <AlertTriangle size={18} className="text-red-600" />
+              <AlertTriangle size={18} className="text-blue-600" />
               <h3 className="font-bold text-sm text-stone-800">
-                Gesamten Speicher löschen?
+                Lokalen Cache löschen?
               </h3>
             </div>
 
             <p className="text-sm text-stone-600">
-              Alle Daten der App werden vollständig entfernt.  
-              Dies umfasst:  
-              – Benutzerkonten  
-              – Einrichtungsinformationen  
-              – Alle gespeicherten Einstellungen
+              Der lokale Browser-Cache wird gelöscht. Du wirst abgemeldet
+              und musst dich neu anmelden. Deine Daten in Supabase
+              bleiben erhalten.
             </p>
 
             <div className="flex gap-2 pt-2">
@@ -270,10 +202,10 @@ export default function SystemTools({ onBack }) {
                 Abbrechen
               </button>
               <button
-                onClick={resetAll}
-                className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-bold"
+                onClick={clearLocalCache}
+                className="flex-1 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold"
               >
-                Zurücksetzen
+                Cache löschen
               </button>
             </div>
           </div>

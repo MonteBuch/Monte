@@ -1,7 +1,6 @@
 // src/components/group/ListPoll.jsx
 import React from "react";
-import { supabase } from "../../api/supabaseClient"; // ⬅️ NEU
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient";
 
 /**
  * Polls (Abstimmungen)

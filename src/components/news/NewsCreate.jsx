@@ -204,7 +204,7 @@ export default function NewsCreate({
       groupId: effectiveTarget === "all" ? null : effectiveTarget,
       target: effectiveTarget === "all" ? "all" : "group",
       attachments,
-      createdBy: user.username,
+      createdBy: user.id,
     };
 
     onSubmit(newItem);
@@ -249,7 +249,7 @@ export default function NewsCreate({
           </button>
 
           {groups
-            .filter((g) => g.id !== "event")
+            .filter((g) => !g.is_event_group)
             .map((g) => {
               const btnStyles = getGroupStyles(g);
               const isActive = effectiveTarget === g.id;

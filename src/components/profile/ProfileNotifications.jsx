@@ -1,18 +1,38 @@
 // src/components/profile/ProfileNotifications.jsx
 import React, { useState, useEffect } from "react";
-import { ArrowLeft } from "lucide-react";
-import { StorageService } from "../../lib/storage";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { supabase } from "../../api/supabaseClient";
 
-const PREF_KEY = "notification_prefs";
 const OPTIONS = ["email", "app", "both", "off"];
 
 export default function ProfileNotifications({ user, onBack }) {
   const [prefs, setPrefs] = useState({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const all = StorageService.get(PREF_KEY) || {};
-    setPrefs(all[user.username] || {});
-  }, [user.username]);
+    async function loadPrefs() {
+      try {
+        const { data, error } = await supabase
+          .from("notification_preferences")
+          .select("category, preference")
+          .eq("user_id", user.id);
+
+        if (error) throw error;
+
+        // Array zu Object konvertieren
+        const prefsObj = {};
+        (data || []).forEach(p => {
+          prefsObj[p.category] = p.preference;
+        });
+        setPrefs(prefsObj);
+      } catch (err) {
+        console.error("Notification prefs laden fehlgeschlagen:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadPrefs();
+  }, [user.id]);
 
   let categories;
   if (user.role === "parent") {
@@ -24,13 +44,26 @@ export default function ProfileNotifications({ user, onBack }) {
     categories = ["news", "absences"];
   }
 
-  const savePref = (cat, val) => {
-    const all = StorageService.get(PREF_KEY) || {};
-    const userPrefs = all[user.username] || {};
-    userPrefs[cat] = val;
-    all[user.username] = userPrefs;
-    StorageService.set(PREF_KEY, all);
-    setPrefs(userPrefs);
+  const savePref = async (cat, val) => {
+    try {
+      // Upsert: Insert oder Update
+      const { error } = await supabase
+        .from("notification_preferences")
+        .upsert({
+          user_id: user.id,
+          category: cat,
+          preference: val,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: "user_id,category"
+        });
+
+      if (error) throw error;
+
+      setPrefs(prev => ({ ...prev, [cat]: val }));
+    } catch (err) {
+      console.error("Notification pref speichern fehlgeschlagen:", err);
+    }
   };
 
   const labelMap = {
@@ -53,6 +86,14 @@ export default function ProfileNotifications({ user, onBack }) {
     both: "Beides",
     off: "Aus",
   };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-10">
+        <Loader2 className="animate-spin text-amber-500" size={24} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

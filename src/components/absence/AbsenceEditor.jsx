@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { StorageService } from "../../lib/storage";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 
 export default function AbsenceEditor({
   mode = "create",
   initialData,
   child,
+  groups = [],
   onSave,
   onCancel,
 }) {
@@ -16,10 +16,6 @@ export default function AbsenceEditor({
   const [dateTo, setDateTo] = useState(todayIso);
   const [reason, setReason] = useState("urlaub");
   const [otherText, setOtherText] = useState("");
-
-  // Facility-Gruppen laden
-  const facility = StorageService.getFacilitySettings();
-  const groups = facility?.groups || [];
 
   useEffect(() => {
     if (!initialData) return;
@@ -104,7 +100,7 @@ export default function AbsenceEditor({
 
   if (!child) return null;
 
-  // 🔁 NEU: Gruppe dynamisch aus Facility + groupUtils
+  // Gruppe dynamisch aus groups + groupUtils
   const groupRaw = getGroupById(groups, child.group);
   const group = getGroupStyles(groupRaw);
 

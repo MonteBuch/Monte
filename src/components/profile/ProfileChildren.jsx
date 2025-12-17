@@ -1,9 +1,9 @@
 // src/components/profile/ProfileChildren.jsx
-import React, { useState } from "react";
-import { ArrowLeft, Plus, Pencil, Trash2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ArrowLeft, Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 
-// Standard Importe
-import { StorageService } from "../../lib/storage";
+import { supabase } from "../../api/supabaseClient";
+import { FACILITY_ID } from "../../lib/constants";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
 import ProfileChildModal from "./ProfileChildModal";
 
@@ -26,44 +26,69 @@ export default function ProfileChildren({
 }) {
   const [primaryGroup, setPrimaryGroup] = useState(user.primaryGroup || null);
   const [children, setChildren] = useState(user.children || []);
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editingChild, setEditingChild] = useState(null);
   const [mode, setMode] = useState("create");
   const [childToDelete, setChildToDelete] = useState(null);
 
-  const allGroups = StorageService.getGroups();
+  // Gruppen laden
+  useEffect(() => {
+    async function loadGroups() {
+      try {
+        const { data } = await supabase
+          .from("groups")
+          .select("*")
+          .eq("facility_id", FACILITY_ID)
+          .order("position");
 
-  const handleSaveGroup = () => {
-    const all = StorageService.get("users");
-    const idx = all.findIndex((u) => u.id === user.id);
-    if (idx === -1) return;
+        setGroups(data || []);
+      } catch (err) {
+        console.error("Gruppen laden fehlgeschlagen:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadGroups();
+  }, []);
 
-    const updated = { ...user, primaryGroup };
+  const displayGroups = groups.filter(g => !g.is_event_group);
 
-    all[idx] = updated;
-    StorageService.set("users", all);
-    onUpdateUser(updated);
-    alert("Stammgruppe gespeichert.");
+  const handleSaveGroup = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({ primary_group: primaryGroup })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      const updated = { ...user, primaryGroup };
+      onUpdateUser(updated);
+      alert("Stammgruppe gespeichert.");
+    } catch (err) {
+      console.error("Speichern fehlgeschlagen:", err);
+      alert("Fehler: " + err.message);
+    }
+    setSaving(false);
   };
 
-  const persistChildren = (updatedChildren) => {
-    const all = StorageService.get("users");
-    const idx = all.findIndex((u) => u.id === user.id);
-    if (idx === -1) return;
+  const persistChildren = async (updatedChildren) => {
+    // Lokalen State sofort aktualisieren
+    setChildren(updatedChildren);
 
     const updatedUser = { ...user, children: updatedChildren };
-
-    all[idx] = updatedUser;
-    StorageService.set("users", all);
     onUpdateUser(updatedUser);
-    setChildren(updatedChildren);
   };
 
   const openCreateModal = () => {
     const defaultGroup =
-      children[0]?.group || 
-      user.primaryGroup || 
-      allGroups[0]?.id || 
-      "erde";
+      children[0]?.group ||
+      user.primaryGroup ||
+      displayGroups[0]?.id ||
+      null;
 
     setMode("create");
     setEditingChild({
@@ -80,24 +105,80 @@ export default function ProfileChildren({
     setEditingChild(child);
   };
 
-  const handleModalSave = (child) => {
-    if (mode === "create") {
-      persistChildren([...children, child]);
-    } else {
-      const updated = children.map((c) => (c.id === child.id ? child : c));
-      persistChildren(updated);
+  const handleModalSave = async (child) => {
+    try {
+      if (mode === "create") {
+        // Kind in Supabase anlegen
+        const { error } = await supabase
+          .from("children")
+          .insert({
+            id: child.id,
+            facility_id: FACILITY_ID,
+            user_id: user.id,
+            first_name: child.name,
+            group_id: child.group,
+            birthday: child.birthday || null,
+            notes: child.notes || null,
+          });
+
+        if (error) throw error;
+
+        persistChildren([...children, child]);
+      } else {
+        // Kind in Supabase updaten
+        const { error } = await supabase
+          .from("children")
+          .update({
+            first_name: child.name,
+            group_id: child.group,
+            birthday: child.birthday || null,
+            notes: child.notes || null,
+          })
+          .eq("id", child.id);
+
+        if (error) throw error;
+
+        const updated = children.map((c) => (c.id === child.id ? child : c));
+        persistChildren(updated);
+      }
+    } catch (err) {
+      console.error("Speichern fehlgeschlagen:", err);
+      alert("Fehler: " + err.message);
     }
+
     setEditingChild(null);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!childToDelete) return;
-    const updated = children.filter((c) => c.id !== childToDelete.id);
-    persistChildren(updated);
+
+    try {
+      const { error } = await supabase
+        .from("children")
+        .delete()
+        .eq("id", childToDelete.id);
+
+      if (error) throw error;
+
+      const updated = children.filter((c) => c.id !== childToDelete.id);
+      persistChildren(updated);
+    } catch (err) {
+      console.error("Löschen fehlgeschlagen:", err);
+      alert("Fehler: " + err.message);
+    }
+
     setChildToDelete(null);
   };
 
   const isParent = user.role === "parent";
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-12">
+        <Loader2 className="animate-spin text-amber-500" size={32} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -121,15 +202,17 @@ export default function ProfileChildren({
             onChange={(e) => setPrimaryGroup(e.target.value)}
             className="w-full p-3 rounded-xl bg-stone-50 border border-stone-300 text-sm"
           >
-            {allGroups.map((g) => (
+            <option value="">Keine</option>
+            {displayGroups.map((g) => (
               <option key={g.id} value={g.id}>{g.name}</option>
             ))}
           </select>
           <button
             onClick={handleSaveGroup}
-            className="w-full bg-amber-500 rounded-xl text-white font-bold py-2 hover:bg-amber-600 active:scale-[0.99] transition"
+            disabled={saving}
+            className="w-full bg-amber-500 rounded-xl text-white font-bold py-2 hover:bg-amber-600 active:scale-[0.99] transition disabled:opacity-50"
           >
-            Speichern
+            {saving ? <Loader2 className="animate-spin mx-auto" size={20} /> : "Speichern"}
           </button>
         </div>
       )}
@@ -156,9 +239,9 @@ export default function ProfileChildren({
 
           <div className="space-y-3">
             {children.map((c) => {
-              const groupData = getGroupById(allGroups, c.group);
+              const groupData = getGroupById(displayGroups, c.group);
               const styles = getGroupStyles(groupData);
-              
+
               return (
                 <div key={c.id} className="bg-white border border-stone-200 rounded-2xl shadow-sm overflow-hidden flex">
                   <div className={`w-2 ${styles.chipClass.replace("text-white", "")}`} />
@@ -204,6 +287,7 @@ export default function ProfileChildren({
       {editingChild && (
         <ProfileChildModal
           initialChild={editingChild}
+          groups={displayGroups}
           mode={mode}
           onCancel={() => setEditingChild(null)}
           onSave={handleModalSave}
