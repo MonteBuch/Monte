@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Capacitor - Android build artifacts
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+
+# Firebase config (contains API keys)
+android/app/google-services.json
+
+# Local notes and screenshots
+Intro/
+
+# Capacitor - iOS (for future)
+ios/App/Pods/
+ios/App/build/
+
+# Vite cache
+.vite/
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp

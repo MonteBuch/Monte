@@ -1,20 +1,70 @@
 import React, { useState, useEffect } from "react";
 import {
   Sprout,
-  KeyRound,
   Plus,
   X,
   AlertTriangle,
   Loader2,
-  Shield,
   CalendarDays,
   StickyNote,
+  Link2,
+  CheckCircle,
+  Fingerprint,
 } from "lucide-react";
 import { supabase } from "../../api/supabaseClient";
 import { FACILITY_ID } from "../../lib/constants";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
+import { useFacility } from "../../context/FacilityContext";
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  authenticateWithBiometric,
+  saveCredentials,
+} from "../../lib/biometricAuth";
+
+// Test-Modus Passwort (nur für Entwicklung)
+const TEST_MASTER_PASSWORD = "454745";
+
+// Password-Validierung
+function validatePassword(password) {
+  // Test-Passwort erlauben (für Entwicklung)
+  if (password === TEST_MASTER_PASSWORD) {
+    return [];
+  }
+
+  const errors = [];
+  if (password.length < 8) {
+    errors.push("Passwort muss mindestens 8 Zeichen haben.");
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push("Passwort muss mindestens einen Großbuchstaben enthalten.");
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push("Passwort muss mindestens einen Kleinbuchstaben enthalten.");
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push("Passwort muss mindestens eine Zahl enthalten.");
+  }
+  return errors;
+}
+
+// Password-Stärke berechnen
+function getPasswordStrength(password) {
+  let strength = 0;
+  if (password.length >= 8) strength++;
+  if (password.length >= 12) strength++;
+  if (/[A-Z]/.test(password)) strength++;
+  if (/[a-z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[^A-Za-z0-9]/.test(password)) strength++;
+
+  if (strength <= 2) return { label: "Schwach", color: "bg-red-500", width: "33%" };
+  if (strength <= 4) return { label: "Mittel", color: "bg-amber-500", width: "66%" };
+  return { label: "Stark", color: "bg-green-500", width: "100%" };
+}
 
 export default function AuthScreen({ onLogin }) {
+  const { facility } = useFacility();
   const [isRegistering, setIsRegistering] = useState(false);
 
   const [role, setRole] = useState("parent");
@@ -22,9 +72,12 @@ export default function AuthScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
 
-  const [parentCode, setParentCode] = useState("");
-  const [teamCode, setTeamCode] = useState("");
-  const [adminCode, setAdminCode] = useState("");
+
+  // Einladungslink-System
+  const [inviteToken, setInviteToken] = useState(null);
+  const [inviteValid, setInviteValid] = useState(false);
+  const [inviteRole, setInviteRole] = useState(null);
+  const [inviteChecking, setInviteChecking] = useState(false);
 
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
@@ -35,6 +88,67 @@ export default function AuthScreen({ onLogin }) {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registrationSuccess, setRegistrationSuccess] = useState(false);
+
+  // Biometrie States
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricTypeName, setBiometricTypeName] = useState("Biometrie");
+  const [showBiometricPrompt, setShowBiometricPrompt] = useState(false);
+  const [pendingCredentials, setPendingCredentials] = useState(null);
+
+  // Biometrie-Status prüfen
+  useEffect(() => {
+    async function checkBiometric() {
+      const available = await isBiometricAvailable();
+      setBiometricAvailable(available.available);
+      if (available.biometryTypeName) {
+        setBiometricTypeName(available.biometryTypeName);
+      }
+
+      const enabled = await isBiometricEnabled();
+      setBiometricEnabled(enabled);
+    }
+    checkBiometric();
+  }, []);
+
+  // Einladungslink aus URL prüfen
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+
+    if (token) {
+      setInviteToken(token);
+      setInviteChecking(true);
+      setIsRegistering(true);
+
+      // Token validieren
+      supabase.rpc("validate_invite_link", { p_token: token })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Invite validation error:", error);
+            setError("Einladungslink konnte nicht validiert werden.");
+            setInviteChecking(false);
+            return;
+          }
+
+          if (data && data.length > 0) {
+            const result = data[0];
+            if (result.valid) {
+              setInviteValid(true);
+              setInviteRole(result.role);
+              setRole(result.role);
+              // URL bereinigen ohne Reload
+              window.history.replaceState({}, "", window.location.pathname);
+            } else {
+              setError(result.error_message || "Ungültiger Einladungslink");
+              setInviteToken(null);
+            }
+          }
+          setInviteChecking(false);
+        });
+    }
+  }, []);
 
   // Gruppen aus Supabase laden
   useEffect(() => {
@@ -95,19 +209,59 @@ export default function AuthScreen({ onLogin }) {
     );
   };
 
-  // Code validieren über Supabase
-  const validateCode = async (code, role) => {
+  // Biometrie-Login
+  const handleBiometricLogin = async () => {
+    setError("");
+    setLoading(true);
+
     try {
-      const { data, error } = await supabase.rpc("validate_registration_code", {
-        p_code: code,
-        p_role: role,
-        p_facility_id: FACILITY_ID,
+      const credentials = await authenticateWithBiometric();
+
+      // Mit Supabase einloggen
+      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: credentials.email,
+        password: credentials.password,
       });
-      if (error) throw error;
-      return data === true;
+
+      if (signInError) {
+        throw new Error("Zugangsdaten ungültig. Bitte erneut anmelden.");
+      }
+
+      const userId = authData.user?.id;
+      if (!userId) {
+        throw new Error("Login fehlgeschlagen.");
+      }
+
+      const userData = await loadUserProfile(userId);
+      onLogin(userData);
     } catch (err) {
-      console.error("Code-Validierung fehlgeschlagen:", err);
-      return false;
+      setError(err.message);
+    }
+
+    setLoading(false);
+  };
+
+  // Biometrie aktivieren (nach erfolgreichem Login)
+  const handleEnableBiometric = async () => {
+    if (!pendingCredentials) return;
+
+    try {
+      await saveCredentials(pendingCredentials.email, pendingCredentials.password);
+      setBiometricEnabled(true);
+    } catch (err) {
+      console.error("Failed to enable biometric:", err);
+    }
+
+    // Login abschließen
+    setShowBiometricPrompt(false);
+    onLogin(pendingCredentials.userData);
+  };
+
+  // Biometrie überspringen
+  const handleSkipBiometric = () => {
+    setShowBiometricPrompt(false);
+    if (pendingCredentials?.userData) {
+      onLogin(pendingCredentials.userData);
     }
   };
 
@@ -123,18 +277,15 @@ export default function AuthScreen({ onLogin }) {
           throw new Error("Bitte alle Pflichtfelder ausfüllen.");
         }
 
-        if (password.length < 6) {
-          throw new Error("Passwort muss mindestens 6 Zeichen haben.");
+        // Password Policy Validation
+        const passwordErrors = validatePassword(password);
+        if (passwordErrors.length > 0) {
+          throw new Error(passwordErrors[0]);
         }
 
-        // Code validieren
-        const codeToValidate =
-          role === "parent" ? parentCode :
-          role === "team" ? teamCode : adminCode;
-
-        const isValidCode = await validateCode(codeToValidate, role);
-        if (!isValidCode) {
-          throw new Error(`Ungültiger ${role === "parent" ? "Eltern" : role === "team" ? "Team" : "Admin"}-Code.`);
+        // Authentifizierung: Einladungslink erforderlich
+        if (!inviteValid || !inviteToken) {
+          throw new Error("Registrierung nur mit gültigem Einladungslink möglich.");
         }
 
         // Kinder validieren (bei Eltern)
@@ -172,6 +323,7 @@ export default function AuthScreen({ onLogin }) {
           : (groups.find(g => !g.is_event_group)?.id || null);
 
         // Erst versuchen zu updaten (falls Trigger das Profil schon erstellt hat)
+        const userEmail = email.toLowerCase().trim();
         const { error: updateError } = await supabase
           .from("profiles")
           .update({
@@ -179,6 +331,7 @@ export default function AuthScreen({ onLogin }) {
             full_name: name,
             role,
             primary_group: primaryGroup,
+            email: userEmail,
           })
           .eq("id", userId);
 
@@ -192,6 +345,7 @@ export default function AuthScreen({ onLogin }) {
               full_name: name,
               role,
               primary_group: primaryGroup,
+              email: userEmail,
             });
 
           if (insertError) {
@@ -201,48 +355,79 @@ export default function AuthScreen({ onLogin }) {
         }
 
         // 3. Kinder erstellen (bei Eltern)
+        // Verwendet SECURITY DEFINER Funktion, da User noch keine Session hat
         if (role === "parent" && children.length > 0) {
-          console.log("[Auth] Erstelle Kinder für User:", userId);
-          console.log("[Auth] Kinder-Daten:", children);
-
-          const childrenToInsert = children.map(c => ({
-            facility_id: FACILITY_ID,
-            user_id: userId,
+          const childrenData = children.map(c => ({
             first_name: c.name,
             group_id: c.group,
             birthday: c.birthday || null,
             notes: c.notes || null,
           }));
 
-          console.log("[Auth] Insert-Daten:", childrenToInsert);
-
-          const { data: insertedChildren, error: childrenError } = await supabase
-            .from("children")
-            .insert(childrenToInsert)
-            .select();
+          const { data: childResult, error: childrenError } = await supabase.rpc(
+            "register_children",
+            {
+              p_user_id: userId,
+              p_facility_id: FACILITY_ID,
+              p_children: childrenData,
+            }
+          );
 
           if (childrenError) {
-            console.error("[Auth] Kinder-Fehler:", childrenError);
-            console.error("[Auth] Fehler-Details:", JSON.stringify(childrenError, null, 2));
-            // Warnung anzeigen, aber Registrierung fortsetzen
-            console.warn("[Auth] Kinder konnten nicht erstellt werden - RLS-Policy Problem?");
-          } else {
-            console.log("[Auth] Kinder erfolgreich erstellt:", insertedChildren);
+            console.error("Kinder konnten nicht erstellt werden:", childrenError);
+          } else if (childResult && !childResult.success) {
+            console.error("Kinder-Registrierung fehlgeschlagen:", childResult.error);
           }
         }
 
-        // 4. User-Daten für App laden
+        // 4. Einladungslink als verwendet markieren
+        if (inviteValid && inviteToken) {
+          await supabase.rpc("use_invite_link", { p_token: inviteToken });
+        }
+
+        // 5. Prüfen ob Email-Bestätigung erforderlich ist
+        // Wenn session null ist, muss der User erst seine Email bestätigen
+        if (!authData.session) {
+          setRegistrationSuccess(true);
+          setLoading(false);
+          return; // WICHTIG: Nicht onLogin() aufrufen!
+        }
+
+        // 6. User-Daten für App laden (nur wenn Session vorhanden)
         const userData = await loadUserProfile(userId);
         onLogin(userData);
 
       } else {
         // === LOGIN ===
+        const userEmail = email.toLowerCase().trim();
+
+        // Zuerst prüfen ob User Force-Reset Flag hat
+        const { data: profileCheck } = await supabase
+          .from("profiles")
+          .select("id, must_reset_password, email")
+          .eq("email", userEmail)
+          .single();
+
         const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.toLowerCase().trim(),
+          email: userEmail,
           password,
         });
 
         if (signInError) {
+          // Wenn Login fehlschlägt UND Force-Reset aktiv ist → Reset-Email senden
+          if (profileCheck?.must_reset_password) {
+            // Reset-Email senden
+            const { error: resetError } = await supabase.auth.resetPasswordForEmail(userEmail, {
+              redirectTo: window.location.origin,
+            });
+
+            if (resetError) {
+              throw new Error("Passwort-Reset E-Mail konnte nicht gesendet werden.");
+            }
+
+            throw new Error("Ihr Passwort wurde von der Leitung zurückgesetzt. Eine E-Mail mit einem Link zum Setzen eines neuen Passworts wurde an Sie gesendet.");
+          }
+
           if (signInError.message.includes("Invalid login")) {
             throw new Error("Ungültige Zugangsdaten.");
           }
@@ -256,6 +441,15 @@ export default function AuthScreen({ onLogin }) {
 
         // User-Daten laden
         const userData = await loadUserProfile(userId);
+
+        // Biometrie-Prompt zeigen (wenn verfügbar und noch nicht aktiviert)
+        if (biometricAvailable && !biometricEnabled) {
+          setPendingCredentials({ email: userEmail, password, userData });
+          setShowBiometricPrompt(true);
+          setLoading(false);
+          return;
+        }
+
         onLogin(userData);
       }
     } catch (err) {
@@ -275,6 +469,7 @@ export default function AuthScreen({ onLogin }) {
         role,
         primary_group,
         facility_id,
+        must_reset_password,
         children (
           id,
           first_name,
@@ -295,6 +490,7 @@ export default function AuthScreen({ onLogin }) {
       role: profile.role,
       primaryGroup: profile.primary_group,
       facilityId: profile.facility_id,
+      mustResetPassword: profile.must_reset_password || false,
       children: (profile.children || []).map(c => ({
         id: c.id,
         name: c.first_name,
@@ -313,33 +509,104 @@ export default function AuthScreen({ onLogin }) {
       <div className="w-full max-w-md py-10">
         {/* LOGO */}
         <div className="text-center mb-6">
-          <div className="bg-amber-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
-            <Sprout className="text-white" size={32} />
-          </div>
+          {facility.logo_url ? (
+            <img
+              src={facility.logo_url}
+              alt={facility.display_name}
+              className="w-16 h-16 rounded-full object-cover mx-auto mb-4 shadow-lg"
+            />
+          ) : (
+            <div className="bg-amber-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+              <Sprout className="text-white" size={32} />
+            </div>
+          )}
           <h1 className="text-2xl font-bold text-stone-800">
-            Montessori Kinderhaus
+            {facility.display_name}
           </h1>
-          <p className="text-stone-500 text-sm italic mt-1">Berlin-Buch</p>
         </div>
 
         <div className="bg-white p-6 md:p-8 rounded-3xl shadow-xl border border-stone-100">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-bold text-stone-700">
-              {isRegistering ? "Registrieren" : "Anmelden"}
-            </h2>
-            <button
-              type="button"
-              onClick={() => {
-                setIsRegistering((v) => !v);
-                setError("");
-              }}
-              className="text-xs text-amber-600 font-bold hover:underline"
-            >
-              {isRegistering ? "Zum Login" : "Konto erstellen"}
-            </button>
-          </div>
+          {/* Biometrie-Aktivierungs-Dialog */}
+          {showBiometricPrompt ? (
+            <div className="text-center space-y-4">
+              <div className="bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                <Fingerprint className="text-amber-600" size={32} />
+              </div>
+              <h2 className="text-xl font-bold text-stone-800">
+                {biometricTypeName} aktivieren?
+              </h2>
+              <p className="text-stone-600">
+                Melden Sie sich beim nächsten Mal schneller an - mit Ihrem {biometricTypeName}.
+              </p>
+              <div className="pt-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={handleEnableBiometric}
+                  className="w-full bg-amber-500 text-white font-bold py-3 rounded-xl hover:bg-amber-600 flex items-center justify-center gap-2"
+                >
+                  <Fingerprint size={20} />
+                  Ja, aktivieren
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipBiometric}
+                  className="w-full bg-stone-100 text-stone-600 font-bold py-3 rounded-xl hover:bg-stone-200"
+                >
+                  Später
+                </button>
+              </div>
+            </div>
+          ) : registrationSuccess ? (
+            <div className="text-center space-y-4">
+              <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+                <CheckCircle className="text-green-600" size={32} />
+              </div>
+              <h2 className="text-xl font-bold text-stone-800">
+                Registrierung erfolgreich!
+              </h2>
+              <p className="text-stone-600">
+                Wir haben Ihnen eine Bestätigungs-E-Mail an <strong>{email}</strong> gesendet.
+              </p>
+              <p className="text-sm text-stone-500">
+                Bitte klicken Sie auf den Link in der E-Mail, um Ihr Konto zu aktivieren.
+                Danach können Sie sich hier anmelden.
+              </p>
+              <div className="pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegistrationSuccess(false);
+                    setIsRegistering(false);
+                    setPassword("");
+                  }}
+                  className="w-full bg-stone-800 text-white font-bold py-3 rounded-xl hover:bg-stone-900"
+                >
+                  Zum Login
+                </button>
+              </div>
+              <p className="text-xs text-stone-400 mt-4">
+                Keine E-Mail erhalten? Prüfen Sie Ihren Spam-Ordner oder versuchen Sie es erneut.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold text-stone-700">
+                  {isRegistering ? "Registrieren" : "Anmelden"}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRegistering((v) => !v);
+                    setError("");
+                  }}
+                  className="text-xs text-amber-600 font-bold hover:underline"
+                >
+                  {isRegistering ? "Zum Login" : "Konto erstellen"}
+                </button>
+              </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-5">
             {/* Registrierung */}
             {isRegistering && (
               <>
@@ -357,86 +624,70 @@ export default function AuthScreen({ onLogin }) {
                   />
                 </div>
 
-                {/* Rollen */}
-                <div className="flex items-center gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200">
+                {/* Rollen (deaktiviert wenn Einladungslink gültig) */}
+                <div className={`flex items-center gap-2 bg-stone-50 p-3 rounded-xl border border-stone-200 ${inviteValid ? "opacity-60" : ""}`}>
                   <button
                     type="button"
-                    onClick={() => setRole("parent")}
+                    onClick={() => !inviteValid && setRole("parent")}
+                    disabled={inviteValid}
                     className={`flex-1 py-2 rounded-lg text-sm font-bold ${
                       role === "parent"
                         ? "bg-white shadow text-stone-800"
                         : "text-stone-400"
-                    }`}
+                    } ${inviteValid ? "cursor-not-allowed" : ""}`}
                   >
                     Elternteil
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRole("team")}
+                    onClick={() => !inviteValid && setRole("team")}
+                    disabled={inviteValid}
                     className={`flex-1 py-2 rounded-lg text-sm font-bold ${
                       role === "team"
                         ? "bg-white shadow text-stone-800"
                         : "text-stone-400"
-                    }`}
+                    } ${inviteValid ? "cursor-not-allowed" : ""}`}
                   >
                     Kita-Team
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRole("admin")}
+                    onClick={() => !inviteValid && setRole("admin")}
+                    disabled={inviteValid}
                     className={`flex-1 py-2 rounded-lg text-sm font-bold ${
                       role === "admin"
                         ? "bg-white shadow text-stone-800"
                         : "text-stone-400"
-                    }`}
+                    } ${inviteValid ? "cursor-not-allowed" : ""}`}
                   >
                     Admin
                   </button>
                 </div>
 
-                {/* Codes */}
-                {role === "parent" && (
-                  <div>
-                    <label className="block text-xs font-bold text-stone-400 uppercase mb-1 flex items-center gap-1">
-                      <KeyRound size={12} /> Eltern-Code
-                    </label>
-                    <input
-                      required
-                      type="password"
-                      value={parentCode}
-                      onChange={(e) => setParentCode(e.target.value)}
-                      className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200"
-                    />
+                {/* Einladungslink-Anzeige */}
+                {inviteValid ? (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-center gap-3">
+                    <CheckCircle className="text-green-500 flex-shrink-0" size={20} />
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">
+                        Einladungslink gültig
+                      </p>
+                      <p className="text-xs text-green-600">
+                        Sie wurden als {inviteRole === "parent" ? "Elternteil" : inviteRole === "team" ? "Team-Mitglied" : "Admin"} eingeladen.
+                      </p>
+                    </div>
                   </div>
-                )}
-
-                {role === "team" && (
-                  <div>
-                    <label className="block text-xs font-bold text-stone-400 uppercase mb-1 flex items-center gap-1">
-                      <KeyRound size={12} /> Team-Code
-                    </label>
-                    <input
-                      required
-                      type="password"
-                      value={teamCode}
-                      onChange={(e) => setTeamCode(e.target.value)}
-                      className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200"
-                    />
-                  </div>
-                )}
-
-                {role === "admin" && (
-                  <div>
-                    <label className="block text-xs font-bold text-stone-400 uppercase mb-1 flex items-center gap-1">
-                      <Shield size={12} /> Admin-Code
-                    </label>
-                    <input
-                      required
-                      type="password"
-                      value={adminCode}
-                      onChange={(e) => setAdminCode(e.target.value)}
-                      className="w-full p-3 bg-amber-50 rounded-xl border border-amber-200"
-                    />
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
+                    <Link2 className="text-amber-500 flex-shrink-0" size={20} />
+                    <div>
+                      <p className="text-sm font-semibold text-amber-800">
+                        Einladungslink erforderlich
+                      </p>
+                      <p className="text-xs text-amber-600">
+                        Bitte fordern Sie einen Einladungslink von der Einrichtung an.
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -478,27 +729,38 @@ export default function AuthScreen({ onLogin }) {
                           />
 
                           {/* Gruppe */}
-                          <div className="grid grid-cols-2 gap-2">
-                            {displayGroups.map((g) => {
-                              const styles = getGroupStyles(g);
+                          <div>
+                            <label className="block text-xs text-stone-500 mb-1">
+                              Gruppe auswählen
+                            </label>
+                            {displayGroups.length === 0 ? (
+                              <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">
+                                Gruppen werden geladen...
+                              </p>
+                            ) : (
+                              <div className="grid grid-cols-2 gap-2">
+                                {displayGroups.map((g) => {
+                                  const styles = getGroupStyles(g);
 
-                              return (
-                                <button
-                                  type="button"
-                                  key={g.id}
-                                  onClick={() =>
-                                    handleChildChange(index, "group", g.id)
-                                  }
-                                  className={`p-2 rounded-lg text-xs flex items-center justify-center gap-1 border ${
-                                    child.group === g.id
-                                      ? `${styles.chipClass} border-transparent shadow-sm`
-                                      : "bg-white border-stone-200 text-stone-500 hover:bg-stone-100"
-                                  }`}
-                                >
-                                  <styles.Icon size={12} /> {styles.name}
-                                </button>
-                              );
-                            })}
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={g.id}
+                                      onClick={() =>
+                                        handleChildChange(index, "group", g.id)
+                                      }
+                                      className={`p-2 rounded-lg text-xs flex items-center justify-center gap-1 border ${
+                                        child.group === g.id
+                                          ? `${styles.chipClass} border-transparent shadow-sm`
+                                          : "bg-white border-stone-200 text-stone-500 hover:bg-stone-100"
+                                      }`}
+                                    >
+                                      <styles.Icon size={12} /> {styles.name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
 
                           {/* Geburtstag */}
@@ -582,8 +844,44 @@ export default function AuthScreen({ onLogin }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full p-3 bg-stone-50 rounded-xl border border-stone-200"
-                  minLength={6}
                 />
+                {/* Password-Anforderungen (bei Registrierung immer sichtbar) */}
+                {isRegistering && (
+                  <div className="mt-2 space-y-2">
+                    {/* Anforderungen-Liste */}
+                    <div className="text-xs text-stone-500 bg-stone-50 p-2 rounded-lg">
+                      <p className="font-semibold mb-1">Passwort-Anforderungen:</p>
+                      <ul className="space-y-0.5">
+                        <li className={password.length >= 8 ? "text-green-600" : ""}>
+                          {password.length >= 8 ? "✓" : "○"} Mindestens 8 Zeichen
+                        </li>
+                        <li className={/[A-Z]/.test(password) ? "text-green-600" : ""}>
+                          {/[A-Z]/.test(password) ? "✓" : "○"} Ein Großbuchstabe (A-Z)
+                        </li>
+                        <li className={/[a-z]/.test(password) ? "text-green-600" : ""}>
+                          {/[a-z]/.test(password) ? "✓" : "○"} Ein Kleinbuchstabe (a-z)
+                        </li>
+                        <li className={/[0-9]/.test(password) ? "text-green-600" : ""}>
+                          {/[0-9]/.test(password) ? "✓" : "○"} Eine Zahl (0-9)
+                        </li>
+                      </ul>
+                    </div>
+                    {/* Stärke-Balken */}
+                    {password.length > 0 && (
+                      <div>
+                        <div className="h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${getPasswordStrength(password).color} transition-all duration-300`}
+                            style={{ width: getPasswordStrength(password).width }}
+                          />
+                        </div>
+                        <p className="text-xs text-stone-500 mt-1">
+                          Stärke: {getPasswordStrength(password).label}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -607,7 +905,22 @@ export default function AuthScreen({ onLogin }) {
                 "Anmelden"
               )}
             </button>
+
+            {/* Biometrie-Login Button (nur im Login-Modus wenn aktiviert) */}
+            {!isRegistering && biometricEnabled && (
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleBiometricLogin}
+                className="w-full mt-3 bg-amber-50 border-2 border-amber-200 text-amber-700 font-bold py-3 rounded-xl hover:bg-amber-100 flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Fingerprint size={20} />
+                Mit {biometricTypeName} anmelden
+              </button>
+            )}
           </form>
+            </>
+          )}
         </div>
       </div>
     </div>

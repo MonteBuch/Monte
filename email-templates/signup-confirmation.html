@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-Mail-Bestätigung - Montessori Kinderhaus</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #fcfaf7;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fcfaf7;">
+    <tr>
+      <td style="padding: 40px 20px;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 520px; margin: 0 auto;">
+
+          <!-- Logo Header -->
+          <tr>
+            <td style="text-align: center; padding-bottom: 30px;">
+              <div style="background-color: #f59e0b; width: 70px; height: 70px; border-radius: 50%; display: inline-block; line-height: 70px; margin-bottom: 16px;">
+                <span style="font-size: 32px;">🌱</span>
+              </div>
+              <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: #1c1917;">
+                Montessori Kinderhaus
+              </h1>
+              <p style="margin: 4px 0 0 0; font-size: 14px; color: #78716c; font-style: italic;">
+                Berlin-Buch
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Card -->
+          <tr>
+            <td>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #ffffff; border-radius: 24px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1); border: 1px solid #e7e5e4;">
+                <tr>
+                  <td style="padding: 40px 32px;">
+
+                    <!-- Greeting -->
+                    <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: bold; color: #1c1917;">
+                      Willkommen bei Monte! 👋
+                    </h2>
+
+                    <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #44403c;">
+                      Vielen Dank für Ihre Registrierung bei der Monte-App des Montessori Kinderhauses Berlin-Buch.
+                    </p>
+
+                    <p style="margin: 0 0 24px 0; font-size: 15px; line-height: 1.6; color: #44403c;">
+                      Um Ihr Konto zu aktivieren und Zugang zur App zu erhalten, bestätigen Sie bitte Ihre E-Mail-Adresse mit einem Klick auf den folgenden Button:
+                    </p>
+
+                    <!-- CTA Button -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                      <tr>
+                        <td style="text-align: center; padding: 8px 0 32px 0;">
+                          <a href="{{ .ConfirmationURL }}"
+                             style="display: inline-block; background-color: #f59e0b; color: #ffffff; font-size: 16px; font-weight: bold; text-decoration: none; padding: 16px 40px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(245, 158, 11, 0.3);">
+                            E-Mail bestätigen
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Alternative Link -->
+                    <p style="margin: 0 0 8px 0; font-size: 13px; color: #78716c;">
+                      Oder kopieren Sie diesen Link in Ihren Browser:
+                    </p>
+                    <p style="margin: 0 0 24px 0; font-size: 12px; color: #a8a29e; word-break: break-all; background-color: #fafaf9; padding: 12px; border-radius: 8px; border: 1px solid #e7e5e4;">
+                      {{ .ConfirmationURL }}
+                    </p>
+
+                    <!-- Divider -->
+                    <hr style="border: none; border-top: 1px solid #e7e5e4; margin: 24px 0;">
+
+                    <!-- Info Box -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fffbeb; border-radius: 12px; border: 1px solid #fde68a;">
+                      <tr>
+                        <td style="padding: 16px;">
+                          <p style="margin: 0; font-size: 13px; color: #92400e;">
+                            <strong>💡 Gut zu wissen:</strong><br>
+                            Nach der Bestätigung können Sie sich mit Ihrer E-Mail-Adresse und dem bei der Registrierung gewählten Passwort anmelden.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 32px 20px; text-align: center;">
+              <p style="margin: 0 0 8px 0; font-size: 13px; color: #78716c;">
+                Sie haben diese E-Mail erhalten, weil Sie sich bei der Monte-App registriert haben.
+              </p>
+              <p style="margin: 0 0 16px 0; font-size: 13px; color: #78716c;">
+                Falls Sie diese Registrierung nicht durchgeführt haben, können Sie diese E-Mail ignorieren.
+              </p>
+              <p style="margin: 0; font-size: 12px; color: #a8a29e;">
+                Montessori Kinderhaus Berlin-Buch<br>
+                © 2025 Alle Rechte vorbehalten
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -4,9 +4,11 @@ import { ArrowLeft } from "lucide-react";
 
 import AdminHome from "./AdminHome";
 import AdminUsers from "./AdminUsers";
-import AdminCodes from "./AdminCodes";
+import AdminInvites from "./AdminInvites";
 import AdminFacility from "./AdminFacility";
 import AdminGroups from "./AdminGroups";
+import AdminEmailDirectory from "./AdminEmailDirectory";
+import AdminSystemTools from "./AdminSystemTools";
 
 export default function AdminArea({ user, onBack }) {
   const [screen, setScreen] = useState("home");
@@ -27,14 +29,20 @@ export default function AdminArea({ user, onBack }) {
       case "users":
         return <AdminUsers onBack={goBack} />;
 
-      case "codes":
-        return <AdminCodes onBack={goBack} />;
+      case "invites":
+        return <AdminInvites user={user} onBack={goBack} />;
 
       case "facility":
         return <AdminFacility onBack={goBack} />;
 
       case "groups":
         return <AdminGroups onBack={goBack} />;
+
+      case "emails":
+        return <AdminEmailDirectory user={user} onBack={goBack} />;
+
+      case "system":
+        return <AdminSystemTools onBack={goBack} />;
 
       default:
         return null;

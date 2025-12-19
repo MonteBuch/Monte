@@ -44,7 +44,8 @@ export default function AdminUserModal({ user, groups = [], onCancel, onSave }) 
     const updated = {
       ...user,
       name: name.trim(),
-      primaryGroup: user.role === "parent" ? undefined : primaryGroup,
+      // Nur Team hat eine Stammgruppe (nicht parent, nicht admin)
+      primaryGroup: user.role === "team" ? primaryGroup : undefined,
       children: user.role === "parent" ? children : undefined,
     };
     onSave(updated);
@@ -79,8 +80,8 @@ export default function AdminUserModal({ user, groups = [], onCancel, onSave }) 
           />
         </div>
 
-        {/* Gruppe (Team/Admin) */}
-        {(user.role === "team" || user.role === "admin") && (
+        {/* Gruppe (nur Team - Admin hat keine Stammgruppe) */}
+        {user.role === "team" && (
           <div className="space-y-1">
             <label className="text-xs uppercase text-stone-500 font-semibold">
               Stammgruppe

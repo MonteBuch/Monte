@@ -1,12 +1,18 @@
 // src/components/profile/ProfileSecurity.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ArrowLeft,
   Save,
   Loader2,
+  Fingerprint,
 } from "lucide-react";
 import { supabase } from "../../api/supabaseClient";
 import ProfileDeleteConfirm from "./ProfileDeleteConfirm";
+import {
+  isBiometricAvailable,
+  isBiometricEnabled,
+  deleteCredentials,
+} from "../../lib/biometricAuth";
 
 export default function ProfileSecurity({
   user,
@@ -20,18 +26,39 @@ export default function ProfileSecurity({
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Biometric-Flag bleibt in localStorage (gerätespezifisch)
-  const biomKey = `bio_${user.id}`;
-  const [biometric, setBiometric] = useState(
-    localStorage.getItem(biomKey) === "1"
-  );
+  // Native Biometrie States
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricTypeName, setBiometricTypeName] = useState("Biometrie");
+  const [biometric, setBiometric] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(true);
 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const toggleBiometric = () => {
-    const newVal = !biometric;
-    setBiometric(newVal);
-    localStorage.setItem(biomKey, newVal ? "1" : "0");
+  // Biometrie-Status beim Laden prüfen
+  useEffect(() => {
+    async function checkBiometric() {
+      const available = await isBiometricAvailable();
+      setBiometricAvailable(available.available);
+      if (available.biometryTypeName) {
+        setBiometricTypeName(available.biometryTypeName);
+      }
+
+      const enabled = await isBiometricEnabled();
+      setBiometric(enabled);
+      setBiometricLoading(false);
+    }
+    checkBiometric();
+  }, []);
+
+  const toggleBiometric = async () => {
+    if (biometric) {
+      // Deaktivieren: Credentials löschen
+      await deleteCredentials();
+      setBiometric(false);
+    } else {
+      // Aktivieren: Hinweis anzeigen (muss beim nächsten Login aktiviert werden)
+      setSuccess("Biometrie wird beim nächsten Login aktiviert.");
+    }
   };
 
   const handlePw = async (e) => {
@@ -83,26 +110,49 @@ export default function ProfileSecurity({
       <h2 className="text-lg font-bold text-stone-800">Sicherheit</h2>
 
       {/* BIOMETRIC */}
-      <div className="bg-white p-5 rounded-2xl border border-stone-200 space-y-3 flex justify-between items-center">
-        <div>
-          <p className="font-semibold text-sm text-stone-800">
-            Biometrischer Login
-          </p>
-          <p className="text-xs text-stone-500 mt-1">
-            FaceID / Fingerprint aktivieren
-          </p>
+      <div className="bg-white p-5 rounded-2xl border border-stone-200 space-y-3">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-xl ${biometric ? "bg-amber-100 text-amber-600" : "bg-stone-100 text-stone-400"}`}>
+              <Fingerprint size={20} />
+            </div>
+            <div>
+              <p className="font-semibold text-sm text-stone-800">
+                {biometricTypeName}
+              </p>
+              <p className="text-xs text-stone-500 mt-0.5">
+                {biometricAvailable
+                  ? "Schneller anmelden ohne Passwort"
+                  : "Nicht verfügbar auf diesem Gerät"}
+              </p>
+            </div>
+          </div>
+
+          {biometricLoading ? (
+            <Loader2 className="animate-spin text-stone-400" size={20} />
+          ) : biometricAvailable ? (
+            <button
+              onClick={toggleBiometric}
+              className={`px-4 py-2 rounded-xl font-bold text-xs transition ${
+                biometric
+                  ? "bg-amber-500 text-white"
+                  : "bg-stone-200 text-stone-600"
+              }`}
+            >
+              {biometric ? "AN" : "AUS"}
+            </button>
+          ) : (
+            <span className="text-xs text-stone-400 bg-stone-100 px-3 py-1.5 rounded-lg">
+              Nicht verfügbar
+            </span>
+          )}
         </div>
 
-        <button
-          onClick={toggleBiometric}
-          className={`px-4 py-2 rounded-xl font-bold text-xs transition ${
-            biometric
-              ? "bg-amber-500 text-white"
-              : "bg-stone-200 text-stone-600"
-          }`}
-        >
-          {biometric ? "AN" : "AUS"}
-        </button>
+        {biometric && (
+          <p className="text-xs text-green-600 bg-green-50 p-2 rounded-lg">
+            Biometrie ist aktiviert. Sie können sich mit {biometricTypeName} anmelden.
+          </p>
+        )}
       </div>
 
       {/* PW CHANGE */}

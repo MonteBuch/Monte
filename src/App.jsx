@@ -9,9 +9,19 @@ import {
   Settings as SettingsIcon,
   Loader2,
   Cake,
+  CheckCircle,
+  Sprout,
 } from "lucide-react";
 
 import { supabase } from "./api/supabaseClient";
+import { GroupsProvider } from "./context/GroupsContext";
+import { FacilityProvider, useFacility } from "./context/FacilityContext";
+import {
+  registerPushNotifications,
+  removePushToken,
+  setupPushListeners,
+  cleanupPushListeners,
+} from "./lib/pushNotifications";
 
 import AuthScreen from "./components/auth/AuthScreen";
 import ForceReset from "./components/auth/ForceReset";
@@ -32,13 +42,14 @@ import ProfileSecurity from "./components/profile/ProfileSecurity";
 
 import AdminArea from "./components/admin/AdminArea";
 import ErrorBoundary from "./components/ErrorBoundary";
+import InstallPrompt from "./components/ui/InstallPrompt";
 import { hasTodayBirthdaysForUser } from "./lib/notificationTriggers";
 
 // --------------------------------------------------
 // Hilfs-Komponenten: Header & Footer
 // --------------------------------------------------
 
-const AppHeader = ({ user }) => {
+const AppHeader = ({ user, facilityName, facilityLogo }) => {
   if (!user) return null;
 
   const displayName = user.name || user.username || "";
@@ -51,19 +62,27 @@ const AppHeader = ({ user }) => {
     <header className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-stone-200">
       <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          {/* kleines „Montessori“-Logo: 4 stilisierte Figuren */}
-          <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center">
-            <div className="flex gap-[2px] -translate-y-[1px]">
-              <div className="w-1.5 h-1.5 rounded-full bg-white" />
-              <div className="w-1.5 h-1.5 rounded-full bg-white" />
-              <div className="w-1.5 h-1.5 rounded-full bg-white" />
-              <div className="w-1.5 h-1.5 rounded-full bg-white" />
+          {/* Logo: Custom oder Default */}
+          {facilityLogo ? (
+            <img
+              src={facilityLogo}
+              alt={facilityName}
+              className="w-9 h-9 rounded-full object-cover"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-amber-500 flex items-center justify-center">
+              <div className="flex gap-[2px] -translate-y-[1px]">
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+              </div>
             </div>
-          </div>
+          )}
 
           <div>
             <p className="text-sm font-bold text-stone-900">
-              Montessori Kinderhaus
+              {facilityName}
             </p>
             {displayName && (
               <p className="text-xs text-stone-500 truncate max-w-[200px]">
@@ -199,7 +218,17 @@ async function loadUserProfile(userId) {
   };
 }
 
-export default function App() {
+// Hilfsfunktion: Standard-Tab basierend auf Rolle
+function getDefaultTabForRole(role) {
+  switch (role) {
+    case "parent": return "group";
+    case "team": return "absence";
+    case "admin": return "admin";
+    default: return "news";
+  }
+}
+
+function AppContent() {
   const [user, setUser] = useState(null);
   const [pendingResetUser, setPendingResetUser] = useState(null);
   const [activeTab, setActiveTab] = useState("news");
@@ -208,89 +237,85 @@ export default function App() {
   const [profileView, setProfileView] = useState("home");
   // Geburtstags-Badge für Team-User
   const [hasBirthdays, setHasBirthdays] = useState(false);
+  // Email-Bestätigung erfolgreich (zeigt Meldung statt Auto-Login)
+  const [emailConfirmed, setEmailConfirmed] = useState(false);
+  // Facility context
+  const { facility } = useFacility();
 
   // Session beim Start wiederherstellen via Supabase Auth
   useEffect(() => {
     let mounted = true;
+    const supabaseStorageKey = "sb-izpjmvgtrwxjmucebfyy-auth-token";
+
+    // Prüfen ob dies ein Email-Bestätigungs-Redirect ist
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const isEmailConfirmation = hashParams.get("type") === "signup" ||
+                                 hashParams.get("type") === "email_confirmation";
 
     async function initSession() {
-      console.log("[App] initSession gestartet");
-      console.log("[App] Supabase Client vorhanden:", !!supabase);
-      console.log("[App] Supabase Auth vorhanden:", !!supabase?.auth);
-
-      // Debug: Zeige gespeicherte Supabase-Daten in localStorage
-      const supabaseStorageKey = "sb-izpjmvgtrwxjmucebfyy-auth-token";
       const storedSession = localStorage.getItem(supabaseStorageKey);
-      console.log("[App] Gespeicherte Session vorhanden:", !!storedSession);
 
-      // Netzwerk-Test: Ist Supabase erreichbar?
-      try {
-        console.log("[App] Teste Supabase-Verbindung...");
-        const testResponse = await fetch("https://izpjmvgtrwxjmucebfyy.supabase.co/rest/v1/", {
-          method: "HEAD",
-          headers: { "apikey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6cGptdmd0cnd4am11Y2ViZnl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUzNzk3NjksImV4cCI6MjA4MDk1NTc2OX0.r9mcolZ5zCMmwjIO3mStZot8YUId_lbxjrvlfxJ_k3s" }
-        });
-        console.log("[App] Supabase erreichbar:", testResponse.ok, "Status:", testResponse.status);
-      } catch (networkError) {
-        console.error("[App] Supabase NICHT erreichbar:", networkError.message);
+      // Bei Email-Bestätigung: Ausloggen und Erfolg anzeigen
+      if (isEmailConfirmation) {
+        // URL bereinigen
+        window.history.replaceState({}, "", window.location.pathname);
+
+        // Kurz warten, dann ausloggen und Meldung zeigen
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          // Ignorieren
+        }
+
+        if (mounted) {
+          setEmailConfirmed(true);
+          setLoading(false);
+        }
+        return;
       }
 
       try {
-        console.log("[App] Rufe getSession auf...");
-
         // Timeout für getSession (5 Sekunden)
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("getSession timeout")), 5000)
         );
 
-        console.log("[App] Promise.race startet...");
-        const sessionPromise = supabase.auth.getSession();
-        console.log("[App] getSession Promise erstellt:", !!sessionPromise);
-
-        const result = await Promise.race([sessionPromise, timeoutPromise]);
-        console.log("[App] Promise.race abgeschlossen");
-        const { data: { session }, error: sessionError } = result;
-
-        console.log("[App] getSession Ergebnis:", { session: !!session, error: sessionError });
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          timeoutPromise
+        ]);
+        const { data: { session } } = result;
 
         if (session?.user && mounted) {
-          console.log("[App] Session gefunden, lade Profil für User:", session.user.id);
           try {
             const userData = await loadUserProfile(session.user.id);
-            console.log("[App] Profil geladen:", userData);
 
             // Prüfen ob Passwort-Reset erforderlich
             if (userData.mustResetPassword) {
               setPendingResetUser(userData);
             } else {
               setUser(userData);
+              // Standard-Tab basierend auf Rolle setzen
+              setActiveTab(getDefaultTabForRole(userData.role));
             }
           } catch (profileError) {
-            console.error("[App] Profil laden fehlgeschlagen:", profileError);
             // Bei Profil-Fehler: Session löschen und Login zeigen
             await supabase.auth.signOut();
           }
-        } else {
-          console.log("[App] Keine Session gefunden");
         }
       } catch (e) {
-        console.error("[App] Session restore failed", e);
-
         // Bei Timeout: Gespeicherte Session löschen und nochmal versuchen
         if (e.message === "getSession timeout" && storedSession) {
-          console.log("[App] Timeout - lösche korrupte Session und versuche erneut...");
           localStorage.removeItem(supabaseStorageKey);
 
           // Zweiter Versuch ohne gespeicherte Session
           try {
-            const { data: { session } } = await supabase.auth.getSession();
-            console.log("[App] Zweiter Versuch erfolgreich:", !!session);
+            await supabase.auth.getSession();
           } catch (retryError) {
-            console.error("[App] Zweiter Versuch fehlgeschlagen:", retryError);
+            // Fehlgeschlagen - zeige Login
           }
         }
       } finally {
-        console.log("[App] initSession beendet, setze loading=false");
         if (mounted) setLoading(false);
       }
     }
@@ -300,9 +325,23 @@ export default function App() {
     // Auth-State-Listener für automatische Updates
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        // Bei Email-Bestätigung ignorieren (wird oben behandelt)
+        if (isEmailConfirmation) return;
+
         if (event === "SIGNED_OUT") {
           setUser(null);
           setPendingResetUser(null);
+        } else if (event === "PASSWORD_RECOVERY" && session?.user) {
+          // User hat Passwort-Reset-Link geklickt → ForceReset anzeigen
+          try {
+            const userData = await loadUserProfile(session.user.id);
+            // Flag auf true setzen, damit ForceReset angezeigt wird
+            userData.mustResetPassword = true;
+            setPendingResetUser(userData);
+            setUser(null);
+          } catch (e) {
+            console.error("Profil laden fehlgeschlagen", e);
+          }
         } else if (event === "SIGNED_IN" && session?.user) {
           try {
             const userData = await loadUserProfile(session.user.id);
@@ -314,6 +353,8 @@ export default function App() {
             } else {
               setUser(userData);
               setPendingResetUser(null);
+              // Standard-Tab basierend auf Rolle setzen
+              setActiveTab(getDefaultTabForRole(userData.role));
             }
           } catch (e) {
             console.error("Profil laden fehlgeschlagen", e);
@@ -362,7 +403,7 @@ export default function App() {
     checkBirthdays();
   }, [user]);
 
-  const handleLogin = (loggedInUser) => {
+  const handleLogin = async (loggedInUser) => {
     // Session wird von Supabase Auth gemanaged
     // Hier nur State setzen für sofortige UI-Reaktion
     if (loggedInUser.mustResetPassword) {
@@ -371,11 +412,27 @@ export default function App() {
     } else {
       setUser(loggedInUser);
       setPendingResetUser(null);
+      // Standard-Tab basierend auf Rolle setzen
+      setActiveTab(getDefaultTabForRole(loggedInUser.role));
+
+      // Push Notifications registrieren (async, non-blocking)
+      registerPushNotifications(loggedInUser.id).catch(console.error);
+      setupPushListeners((notification) => {
+        // Optional: Toast oder Badge bei eingehender Notification
+        console.log('Notification received:', notification);
+      });
     }
+    // Email-Bestätigung zurücksetzen falls gesetzt
+    setEmailConfirmed(false);
   };
 
   const handleLogout = async () => {
     try {
+      // Push Token entfernen
+      if (user?.id) {
+        await removePushToken(user.id);
+        await cleanupPushListeners();
+      }
       await supabase.auth.signOut();
     } catch (e) {
       console.error("Logout failed", e);
@@ -428,6 +485,53 @@ export default function App() {
         user={pendingResetUser}
         onPasswordUpdated={handlePasswordUpdated}
       />
+    );
+  }
+
+  // Email-Bestätigung erfolgreich - Login-Aufforderung anzeigen
+  if (emailConfirmed && !user) {
+    return (
+      <div className="h-screen bg-[#fcfaf7] flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-md">
+          {/* Logo */}
+          <div className="text-center mb-6">
+            {facility.logo_url ? (
+              <img
+                src={facility.logo_url}
+                alt={facility.display_name}
+                className="w-16 h-16 rounded-full object-cover mx-auto mb-4 shadow-lg"
+              />
+            ) : (
+              <div className="bg-amber-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg">
+                <Sprout className="text-white" size={32} />
+              </div>
+            )}
+            <h1 className="text-2xl font-bold text-stone-800">
+              {facility.display_name}
+            </h1>
+          </div>
+
+          {/* Erfolgs-Card */}
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-stone-100 text-center space-y-4">
+            <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
+              <CheckCircle className="text-green-600" size={32} />
+            </div>
+            <h2 className="text-xl font-bold text-stone-800">
+              E-Mail bestätigt!
+            </h2>
+            <p className="text-stone-600">
+              Ihre E-Mail-Adresse wurde erfolgreich bestätigt.
+              Sie können sich jetzt anmelden.
+            </p>
+            <button
+              onClick={() => setEmailConfirmed(false)}
+              className="w-full bg-stone-800 text-white font-bold py-4 rounded-xl hover:bg-stone-900 mt-4 shadow-md"
+            >
+              Zum Login
+            </button>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -526,21 +630,34 @@ export default function App() {
   // ------------------------------------------
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fcfaf7]">
-      <AppHeader user={user} />
+    <GroupsProvider>
+      <div className="min-h-screen flex flex-col bg-[#fcfaf7]">
+        <AppHeader user={user} facilityName={facility.display_name} facilityLogo={facility.logo_url} />
 
-      <main className="flex-1 overflow-y-auto pt-20 pb-20">
-        <div className="max-w-4xl mx-auto px-4 py-4">
-          <ErrorBoundary>{mainContent}</ErrorBoundary>
-        </div>
-      </main>
+        <main className="flex-1 overflow-y-auto pt-20 pb-20">
+          <div className="max-w-4xl mx-auto px-4 py-4">
+            <ErrorBoundary>{mainContent}</ErrorBoundary>
+          </div>
+        </main>
 
-      <AppFooter
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        isAdmin={isAdmin}
-        hasBirthdays={hasBirthdays}
-      />
-    </div>
+        <AppFooter
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isAdmin={isAdmin}
+          hasBirthdays={hasBirthdays}
+        />
+
+        <InstallPrompt />
+      </div>
+    </GroupsProvider>
+  );
+}
+
+// Wrapper mit FacilityProvider
+export default function App() {
+  return (
+    <FacilityProvider>
+      <AppContent />
+    </FacilityProvider>
   );
 }

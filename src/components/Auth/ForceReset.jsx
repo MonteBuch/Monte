@@ -3,6 +3,47 @@ import React, { useState } from "react";
 import { Lock, Save, AlertTriangle, Loader2 } from "lucide-react";
 import { supabase } from "../../api/supabaseClient";
 
+// Test-Modus Passwort (nur für Entwicklung)
+const TEST_MASTER_PASSWORD = "454745";
+
+// Password-Validierung
+function validatePassword(password) {
+  // Test-Passwort erlauben (für Entwicklung)
+  if (password === TEST_MASTER_PASSWORD) {
+    return [];
+  }
+
+  const errors = [];
+  if (password.length < 8) {
+    errors.push("Passwort muss mindestens 8 Zeichen haben.");
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push("Passwort muss mindestens einen Großbuchstaben enthalten.");
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push("Passwort muss mindestens einen Kleinbuchstaben enthalten.");
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push("Passwort muss mindestens eine Zahl enthalten.");
+  }
+  return errors;
+}
+
+// Password-Stärke berechnen
+function getPasswordStrength(password) {
+  let strength = 0;
+  if (password.length >= 8) strength++;
+  if (password.length >= 12) strength++;
+  if (/[A-Z]/.test(password)) strength++;
+  if (/[a-z]/.test(password)) strength++;
+  if (/[0-9]/.test(password)) strength++;
+  if (/[^A-Za-z0-9]/.test(password)) strength++;
+
+  if (strength <= 2) return { label: "Schwach", color: "bg-red-500", width: "33%" };
+  if (strength <= 4) return { label: "Mittel", color: "bg-amber-500", width: "66%" };
+  return { label: "Stark", color: "bg-green-500", width: "100%" };
+}
+
 export default function ForceReset({ user, onPasswordUpdated }) {
   const [newPw1, setNewPw1] = useState("");
   const [newPw2, setNewPw2] = useState("");
@@ -17,10 +58,14 @@ export default function ForceReset({ user, onPasswordUpdated }) {
       setError("Bitte ein neues Passwort vergeben.");
       return;
     }
-    if (newPw1.length < 6) {
-      setError("Passwort muss mindestens 6 Zeichen haben.");
+
+    // Password Policy Validation
+    const passwordErrors = validatePassword(newPw1);
+    if (passwordErrors.length > 0) {
+      setError(passwordErrors[0]);
       return;
     }
+
     if (newPw1 !== newPw2) {
       setError("Die Passwörter stimmen nicht überein.");
       return;
@@ -29,14 +74,8 @@ export default function ForceReset({ user, onPasswordUpdated }) {
     setLoading(true);
 
     try {
-      // 1. Passwort bei Supabase Auth ändern
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPw1,
-      });
-
-      if (updateError) throw updateError;
-
-      // 2. must_reset_password Flag in profiles zurücksetzen
+      // 1. ZUERST must_reset_password Flag zurücksetzen
+      //    (verhindert Race Condition mit onAuthStateChange)
       const { error: profileError } = await supabase
         .from("profiles")
         .update({ must_reset_password: false })
@@ -44,7 +83,22 @@ export default function ForceReset({ user, onPasswordUpdated }) {
 
       if (profileError) {
         console.error("Profil-Update fehlgeschlagen:", profileError);
-        // Nicht fatal - Passwort ist geändert
+        throw profileError;
+      }
+
+      // 2. DANN Passwort bei Supabase Auth ändern
+      //    (kann onAuthStateChange auslösen, aber Flag ist bereits false)
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPw1,
+      });
+
+      if (updateError) {
+        // Passwort-Änderung fehlgeschlagen - Flag wieder setzen
+        await supabase
+          .from("profiles")
+          .update({ must_reset_password: true })
+          .eq("id", user.id);
+        throw updateError;
       }
 
       // 3. User ohne mustResetPassword zurückgeben
@@ -90,9 +144,28 @@ export default function ForceReset({ user, onPasswordUpdated }) {
               onChange={(e) => setNewPw1(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
               placeholder="Neues Passwort"
-              minLength={6}
+              minLength={8}
               required
             />
+            {/* Password-Stärke-Anzeige */}
+            {newPw1.length > 0 && (
+              <div className="mt-2">
+                <div className="h-1.5 bg-stone-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${getPasswordStrength(newPw1).color} transition-all duration-300`}
+                    style={{ width: getPasswordStrength(newPw1).width }}
+                  />
+                </div>
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-xs text-stone-500">
+                    Stärke: {getPasswordStrength(newPw1).label}
+                  </span>
+                  <span className="text-xs text-stone-400">
+                    Mind. 8 Zeichen, 1 Großbuchstabe, 1 Zahl
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Wiederholen */}
@@ -106,7 +179,7 @@ export default function ForceReset({ user, onPasswordUpdated }) {
               onChange={(e) => setNewPw2(e.target.value)}
               className="w-full p-3 bg-stone-50 border border-stone-300 rounded-xl"
               placeholder="Passwort wiederholen"
-              minLength={6}
+              minLength={8}
               required
             />
           </div>

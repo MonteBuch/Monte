@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Monte Theme Colors -->
+    <color name="colorPrimary">#f59e0b</color>
+    <color name="colorPrimaryDark">#d97706</color>
+    <color name="colorAccent">#f59e0b</color>
+    <color name="colorBackground">#fcfaf7</color>
+</resources>

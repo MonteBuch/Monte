@@ -2,7 +2,27 @@
   "permissions": {
     "allow": [
       "WebFetch(domain:)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__execute_sql",
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "mcp__supabase__apply_migration",
+      "Bash(git rm:*)",
+      "mcp__supabase__search_docs",
+      "Bash(npm run dev:*)",
+      "mcp__supabase__deploy_edge_function",
+      "mcp__supabase__get_edge_function",
+      "mcp__supabase__get_logs",
+      "Bash(curl:*)",
+      "Bash(npm install:*)",
+      "Bash(node scripts/generate-icons.js:*)",
+      "Bash(npx cap init:*)",
+      "Bash(npx cap:*)",
+      "mcp__supabase__get_publishable_keys"
     ]
   }
 }

@@ -8,12 +8,13 @@ import {
   FolderOpen,
   Cake,
   LogOut,
+  User as UserIcon,
 } from "lucide-react";
 import ProfileSection from "./ProfileSection";
 import { supabase } from "../../api/supabaseClient";
 import { fetchGroups } from "../../api/groupApi";
 import { getTodayBirthdaysForUser } from "../../lib/notificationTriggers";
-import { getGroupStyles } from "../../utils/groupUtils";
+import { getGroupStyles, getGroupById } from "../../utils/groupUtils";
 
 export default function ProfileHome({ user, onNavigate, onLogout }) {
   const isAdmin = user.role === "admin";
@@ -64,8 +65,99 @@ export default function ProfileHome({ user, onNavigate, onLogout }) {
 
   const groupById = (id) => groups.find((g) => g.id === id);
 
+  // Rollen-Label für Header
+  const roleLabel = isAdmin ? "Leitung" : isTeam ? "Team" : "Eltern";
+
+  // Kinder-Info für Eltern
+  const childrenInfo = isParent && user.children?.length > 0
+    ? `${user.children.length} ${user.children.length === 1 ? "Kind" : "Kinder"}`
+    : null;
+
+  // Gruppen der Kinder (für Eltern)
+  const childGroups = isParent && user.children?.length > 0
+    ? [...new Set(user.children.map((c) => c.group).filter(Boolean))]
+    : [];
+
+  // Initialen für Avatar
+  const initials = user.name
+    ? user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+
   return (
     <div className="space-y-5">
+      {/* === IDENTITY HEADER - UI Review Update === */}
+      <div
+        className="p-5 rounded-3xl shadow-sm border border-stone-200"
+        style={{ backgroundColor: "#f8f9fa" }}
+      >
+        <div className="flex items-center gap-4">
+          {/* Avatar */}
+          <div className="w-14 h-14 rounded-full bg-stone-400 text-white flex items-center justify-center text-xl font-bold shadow">
+            {initials}
+          </div>
+
+          {/* Info */}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-stone-800 truncate">
+              {user.name || "Benutzer"}
+            </h2>
+            <div className="flex flex-wrap items-center gap-2 mt-1">
+              {/* Rollen-Badge (nur für Team und Admin) */}
+              {(isTeam || isAdmin) && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-800 text-white">
+                  {roleLabel}
+                </span>
+              )}
+
+              {/* Kinder-Info (nur Eltern) - FETT */}
+              {childrenInfo && (
+                <span className="text-xs text-stone-700 font-bold">{childrenInfo}</span>
+              )}
+            </div>
+
+            {/* Gruppen-Chips (nur Eltern mit Kindern) */}
+            {childGroups.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {childGroups.map((groupId) => {
+                  const g = groupById(groupId);
+                  const styles = g ? getGroupStyles(g) : null;
+                  if (!styles) return null;
+                  return (
+                    <span
+                      key={groupId}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.chipClass} text-white`}
+                    >
+                      <styles.Icon size={10} />
+                      {styles.name}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Stammgruppe (nur Team) */}
+            {isTeam && user.primaryGroup && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {(() => {
+                  const g = groupById(user.primaryGroup);
+                  const styles = g ? getGroupStyles(g) : null;
+                  if (!styles) return null;
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.chipClass} text-white`}
+                    >
+                      <styles.Icon size={10} />
+                      {styles.name}
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* === END IDENTITY HEADER === */}
+
       {/* Eltern: Kinderverwaltung */}
       {isParent && (
         <ProfileSection

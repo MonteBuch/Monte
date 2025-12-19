@@ -8,12 +8,12 @@ import {
   Italic,
   Underline as UnderlineIcon,
   Trash2,
-  Megaphone,
   List as ListIcon,
   ListOrdered,
   Image as ImageIcon,
   Minus as MinusIcon,
   Type as TypeIcon,
+  Check,
 } from "lucide-react";
 
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -24,9 +24,51 @@ import { Mark } from "@tiptap/core";
 
 import { getGroupStyles } from "../../utils/groupUtils";
 
-//
-// ⭐ INLINE CUSTOM UNDERLINE – vorhandene Logik aus deiner alten Datei!
-//
+// Bildkomprimierung: Max 1920px Breite, 85% Qualität
+const MAX_IMAGE_WIDTH = 1920;
+const IMAGE_QUALITY = 0.85;
+
+async function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      // Berechne neue Dimensionen
+      let width = img.width;
+      let height = img.height;
+
+      if (width > MAX_IMAGE_WIDTH) {
+        height = Math.round((height * MAX_IMAGE_WIDTH) / width);
+        width = MAX_IMAGE_WIDTH;
+      }
+
+      // Canvas erstellen und Bild zeichnen
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Versuche WebP, Fallback zu JPEG
+      let result = canvas.toDataURL("image/webp", IMAGE_QUALITY);
+      if (!result.startsWith("data:image/webp")) {
+        // Browser unterstützt kein WebP, nutze JPEG
+        result = canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+      }
+
+      // Logging für Debug
+      const originalSize = (file.size / 1024).toFixed(1);
+      const compressedSize = (result.length * 0.75 / 1024).toFixed(1); // Base64 ist ~33% größer
+      console.log(`Bild komprimiert: ${originalSize}KB → ${compressedSize}KB (${img.width}x${img.height} → ${width}x${height})`);
+
+      resolve(result);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// Custom Underline Mark
 const CustomUnderline = Mark.create({
   name: "customUnderline",
 
@@ -52,38 +94,55 @@ const CustomUnderline = Mark.create({
 export default function NewsCreate({
   user,
   groups,
-  selectedGroupId,
-  onGroupChange,
+  selectedGroupIds,
+  onGroupsChange,
   onSubmit,
 }) {
+  const [title, setTitle] = useState("");
   const [attachments, setAttachments] = useState([]);
+  const [refresh, setRefresh] = useState(0);
 
-  const effectiveTarget =
-    selectedGroupId ?? (user.role === "team" && user.primaryGroup) ?? "all";
+  // Effektive Auswahl: Array von IDs oder "all"
+  const isAllSelected = selectedGroupIds.length === 0;
+  const displayGroups = groups.filter((g) => !g.is_event_group);
 
-  const selectedGroup =
-    effectiveTarget !== "all"
-      ? groups.find((g) => g.id === effectiveTarget)
-      : null;
+  // Ersten ausgewählten Gruppe für Header-Styling
+  const firstSelectedGroup = !isAllSelected
+    ? groups.find((g) => selectedGroupIds.includes(g.id))
+    : null;
 
-  // Styles
-  const styles = getGroupStyles(selectedGroup);
-  const iconBg = selectedGroup
+  const styles = getGroupStyles(firstSelectedGroup);
+  const iconBg = firstSelectedGroup
     ? styles.chipClass
     : "bg-stone-200 text-stone-700";
 
-  const targetLabel =
-    effectiveTarget === "all"
-      ? "Alle"
-      : selectedGroup
-      ? selectedGroup.name
-      : "Alle";
+  // Label für Button
+  const getTargetLabel = () => {
+    if (isAllSelected) return "Alle";
+    if (selectedGroupIds.length === 1) {
+      const group = groups.find((g) => g.id === selectedGroupIds[0]);
+      return group?.name || "Gruppe";
+    }
+    return `${selectedGroupIds.length} Gruppen`;
+  };
 
-  const [refresh, setRefresh] = useState(0);
+  // Gruppe toggle (Multi-Select)
+  const toggleGroup = (groupId) => {
+    if (selectedGroupIds.includes(groupId)) {
+      // Entfernen
+      onGroupsChange(selectedGroupIds.filter((id) => id !== groupId));
+    } else {
+      // Hinzufügen
+      onGroupsChange([...selectedGroupIds, groupId]);
+    }
+  };
 
-  //
+  // "Alle" auswählen (leeres Array = alle)
+  const selectAll = () => {
+    onGroupsChange([]);
+  };
+
   // TIPTAP EDITOR
-  //
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -93,10 +152,10 @@ export default function NewsCreate({
           openOnClick: true,
         },
       }),
-      CustomUnderline, // ⭐ wieder drin – exakt wie früher
+      CustomUnderline,
       Image.configure({ inline: true }),
       Placeholder.configure({
-        placeholder: "Kurze Info für Eltern oder Team...",
+        placeholder: "Nachricht eingeben...",
       }),
     ],
     content: "",
@@ -108,9 +167,7 @@ export default function NewsCreate({
     },
   });
 
-  //
   // FORMAT COMMANDS
-  //
   const applyFormat = (command) => {
     if (!editor) return;
 
@@ -151,23 +208,28 @@ export default function NewsCreate({
   const isActive = (name, attrs = {}) =>
     editor ? editor.isActive(name, attrs) : false;
 
-  //
-  // IMAGE EMBED
-  //
-  const handleImageFileChange = (e) => {
+  // IMAGE EMBED (mit Komprimierung)
+  const handleImageFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !editor) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      editor.chain().focus().setImage({ src: reader.result }).run();
-    };
-    reader.readAsDataURL(file);
+
+    try {
+      // Komprimiere das Bild
+      const compressedDataUrl = await compressImage(file);
+      editor.chain().focus().setImage({ src: compressedDataUrl }).run();
+    } catch (error) {
+      console.error("Fehler beim Komprimieren des Bildes:", error);
+      // Fallback: Original verwenden
+      const reader = new FileReader();
+      reader.onload = () => {
+        editor.chain().focus().setImage({ src: reader.result }).run();
+      };
+      reader.readAsDataURL(file);
+    }
     e.target.value = "";
   };
 
-  //
-  // FILE ATTACHMENTS → werden später in Supabase hochgeladen
-  //
+  // FILE ATTACHMENTS
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -176,7 +238,7 @@ export default function NewsCreate({
       name: file.name,
       size: file.size,
       type: file.type,
-      file, // wichtig für Supabase Storage
+      file,
     }));
 
     setAttachments((prev) => [...prev, ...mapped]);
@@ -187,9 +249,7 @@ export default function NewsCreate({
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
-  //
   // SUBMIT
-  //
   const handleSubmit = () => {
     if (!editor) return;
 
@@ -199,26 +259,28 @@ export default function NewsCreate({
 
     const newItem = {
       id: crypto.randomUUID(),
+      title: title.trim() || null,
       text: html,
       date: new Date().toISOString(),
-      groupId: effectiveTarget === "all" ? null : effectiveTarget,
-      target: effectiveTarget === "all" ? "all" : "group",
+      // Neue Struktur: groupIds Array (leer = alle)
+      groupIds: isAllSelected ? [] : selectedGroupIds,
+      // Legacy-Felder für Abwärtskompatibilität
+      groupId: isAllSelected ? null : (selectedGroupIds[0] || null),
+      target: isAllSelected ? "all" : "group",
       attachments,
       createdBy: user.id,
     };
 
     onSubmit(newItem);
 
+    // Reset
+    setTitle("");
     editor.commands.setContent("");
     setAttachments([]);
   };
 
-  //
-  // UI – unverändert
-  //
   return (
     <div className="space-y-4">
-
       {/* HEADER */}
       <div
         className="p-5 rounded-3xl border shadow-sm text-stone-800 transition-colors duration-300"
@@ -230,50 +292,62 @@ export default function NewsCreate({
           </div>
 
           <div>
-            <h3 className="text-lg font-bold">News</h3>
+            <h3 className="text-lg font-bold">News erstellen</h3>
             <p className="text-xs opacity-80">Neue Mitteilung an Eltern senden</p>
           </div>
         </div>
 
-        {/* Gruppenwahl */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button
-            onClick={() => onGroupChange("all")}
-            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-              effectiveTarget === "all"
-                ? "bg-stone-800 text-white border-transparent"
-                : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
-            }`}
-          >
-            Alle
-          </button>
+        {/* Gruppenwahl - Multi-Select */}
+        <div className="mt-4">
+          <p className="text-xs font-semibold text-stone-600 mb-2">Empfänger auswählen:</p>
+          <div className="flex flex-wrap gap-2">
+            {/* "Alle" Button */}
+            <button
+              onClick={selectAll}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all flex items-center gap-1 ${
+                isAllSelected
+                  ? "bg-stone-800 text-white border-transparent"
+                  : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
+              }`}
+            >
+              {isAllSelected && <Check size={12} />}
+              Alle
+            </button>
 
-          {groups
-            .filter((g) => !g.is_event_group)
-            .map((g) => {
+            {/* Gruppen-Buttons (Multi-Select) */}
+            {displayGroups.map((g) => {
               const btnStyles = getGroupStyles(g);
-              const isActive = effectiveTarget === g.id;
+              const isSelected = selectedGroupIds.includes(g.id);
 
               return (
                 <button
                   key={g.id}
-                  onClick={() => onGroupChange(g.id)}
+                  onClick={() => toggleGroup(g.id)}
                   className={`px-3 py-1.5 rounded-full text-xs font-semibold border flex items-center gap-1 transition-all ${
-                    isActive
+                    isSelected
                       ? `${btnStyles.chipClass} border-transparent shadow-sm`
                       : "bg-white/50 text-stone-600 border-stone-300 hover:bg-white"
                   }`}
                 >
-                  {isActive && <btnStyles.Icon size={12} />}
+                  {isSelected && <Check size={12} />}
                   {g.name}
                 </button>
               );
             })}
+          </div>
         </div>
       </div>
 
-      {/* EDITOR */}
+      {/* TITEL INPUT */}
       <div className="rounded-2xl border border-stone-300 bg-white overflow-hidden shadow-sm">
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Betreff / Headline (optional)"
+          className="w-full px-4 py-3 text-sm font-semibold border-b border-stone-200 focus:outline-none focus:bg-amber-50 transition-colors"
+        />
+
         {/* Toolbar */}
         {editor && (
           <div className="flex items-center gap-1 px-3 py-2 border-b bg-stone-50">
@@ -336,7 +410,7 @@ export default function NewsCreate({
         className="w-full py-3 bg-amber-600 text-white rounded-xl font-bold hover:bg-amber-700 active:scale-95 flex items-center justify-center gap-2 text-sm shadow-md transition-transform"
       >
         <Send size={18} />
-        {`Mitteilung an ${targetLabel} senden`}
+        {`Mitteilung an ${getTargetLabel()} senden`}
       </button>
     </div>
   );

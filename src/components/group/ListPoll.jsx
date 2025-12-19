@@ -36,19 +36,19 @@ export default function ListPoll({ list, user, isAdmin, reload }) {
   const toggleVote = async (itemIndex) => {
     if (isAdmin) return;
 
-    const me = user.username;
+    const myId = user.id;
     const newItems = items.map((item, idx) => {
       const votes = Array.isArray(item.votes) ? [...item.votes] : [];
 
       // Entferne meine Stimme aus allen Optionen
-      const filteredVotes = votes.filter((v) => v !== me);
+      const filteredVotes = votes.filter((v) => v !== myId);
 
       // Zieloption → ggf. Stimme setzen
       if (idx === itemIndex) {
-        const hadVote = votes.includes(me);
+        const hadVote = votes.includes(myId);
 
         if (!hadVote) {
-          filteredVotes.push(me);
+          filteredVotes.push(myId);
         }
       }
 
@@ -79,7 +79,7 @@ export default function ListPoll({ list, user, isAdmin, reload }) {
     >
       {items.map((item, idx) => {
         const votes = Array.isArray(item.votes) ? item.votes : [];
-        const hasMyVote = votes.includes(user.username);
+        const hasMyVote = votes.includes(user.id);
 
         const voteText =
           votes.length === 0

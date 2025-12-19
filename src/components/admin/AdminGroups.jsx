@@ -7,29 +7,6 @@ import {
   Trash2,
   Plus,
   Globe,
-  Droplets,
-  Flame,
-  Sun,
-  Flower2,
-  Wind,
-  Cloud,
-  Leaf,
-  TreePine,
-  Mountain,
-  Snowflake,
-  MoonStar,
-  Palette,
-  Brush,
-  Blocks,
-  Puzzle,
-  Music4,
-  Baby,
-  Smile,
-  UsersRound,
-  BookOpen,
-  Star,
-  Clover,
-  Rainbow,
   Loader2,
 } from "lucide-react";
 
@@ -51,36 +28,24 @@ import {
   migrateTeamToGroup,
 } from "../../api/groupApi";
 
+import { ICON_POOL, DEFAULT_ICON } from "../../utils/groupUtils";
+
 import AddGroupModal from "./groups/AddGroupModal";
 import EditGroupModal from "./groups/EditGroupModal";
 
-/* ICON SET */
-export const ICON_SET = [
-  { id: "globe", icon: <Globe size={18} /> },
-  { id: "droplets", icon: <Droplets size={18} /> },
-  { id: "flame", icon: <Flame size={18} /> },
-  { id: "sun", icon: <Sun size={18} /> },
-  { id: "flower2", icon: <Flower2 size={18} /> },
-  { id: "wind", icon: <Wind size={18} /> },
-  { id: "cloud", icon: <Cloud size={18} /> },
-  { id: "leaf", icon: <Leaf size={18} /> },
-  { id: "tree-pine", icon: <TreePine size={18} /> },
-  { id: "mountain", icon: <Mountain size={18} /> },
-  { id: "snowflake", icon: <Snowflake size={18} /> },
-  { id: "moon-star", icon: <MoonStar size={18} /> },
-  { id: "palette", icon: <Palette size={18} /> },
-  { id: "brush", icon: <Brush size={18} /> },
-  { id: "blocks", icon: <Blocks size={18} /> },
-  { id: "puzzle", icon: <Puzzle size={18} /> },
-  { id: "music-4", icon: <Music4 size={18} /> },
-  { id: "baby", icon: <Baby size={18} /> },
-  { id: "smile", icon: <Smile size={18} /> },
-  { id: "users-round", icon: <UsersRound size={18} /> },
-  { id: "book-open", icon: <BookOpen size={18} /> },
-  { id: "star", icon: <Star size={18} /> },
-  { id: "clover", icon: <Clover size={18} /> },
-  { id: "rainbow", icon: <Rainbow size={18} /> }, // ✅ für Event
+// ICON_SET aus ICON_POOL generieren (für Modals)
+// Filtere Legacy-Aliase (water, tree, sprout) raus
+const ICON_SET_IDS = [
+  "globe", "droplets", "flame", "sun", "flower2", "wind", "cloud", "leaf",
+  "tree-pine", "mountain", "snowflake", "moon-star", "palette", "brush",
+  "blocks", "puzzle", "music-4", "baby", "smile", "users-round",
+  "book-open", "star", "clover", "rainbow"
 ];
+
+export const ICON_SET = ICON_SET_IDS.map((id) => {
+  const IconComponent = ICON_POOL[id] || DEFAULT_ICON;
+  return { id, icon: <IconComponent size={18} /> };
+});
 
 export const COLOR_SET = [
   "bg-amber-400","bg-amber-500",
@@ -104,8 +69,10 @@ const extractBgClass = (colorString) => {
   return parts.find((c) => c.startsWith("bg-")) || "bg-amber-500";
 };
 
-const iconFor = (id) =>
-  ICON_SET.find((i) => i.id === id)?.icon || <Globe size={18} />;
+const iconFor = (id) => {
+  const IconComponent = ICON_POOL[id] || DEFAULT_ICON;
+  return <IconComponent size={18} />;
+};
 
 const reorder = (list, startIndex, endIndex) => {
   const result = [...list];

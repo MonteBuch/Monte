@@ -11,11 +11,6 @@ import {
 // Facility ID (Supabase)
 export const FACILITY_ID = "6c4ca2f6-1e0d-47c2-b112-c4baddc9ce23";
 
-// Fallback-Codes (werden nur genutzt wenn Supabase nicht erreichbar)
-export const DEFAULT_PARENT_CODE = "PARENT-2024";
-export const DEFAULT_TEAM_CODE = "TEAM-2024";
-export const DEFAULT_ADMIN_CODE = "ADMIN-2024";
-
 export const GROUPS = [
    {
     id: "event",

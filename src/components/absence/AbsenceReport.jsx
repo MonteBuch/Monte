@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Trash2, Pencil, Loader2 } from "lucide-react";
-import AbsenceBanner from "./AbsenceBanner";
+import { Trash2, Pencil, Loader2, CalendarDays, AlertCircle } from "lucide-react";
 import AbsenceEditor from "./AbsenceEditor";
 import { supabase } from "../../api/supabaseClient";
 import { FACILITY_ID } from "../../lib/constants";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
+import { sendAbsencePushNotifications } from "../../api/pushApi";
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -148,14 +148,21 @@ export default function AbsenceReport({ user }) {
 
       // Prüfen ob Update oder Insert
       const existingIdx = entries.findIndex(e => e.id === entry.id);
+      const isNewEntry = existingIdx === -1;
 
-      if (existingIdx === -1) {
+      if (isNewEntry) {
         // Insert
         const { error } = await supabase
           .from("absences")
           .insert(dbEntry);
 
         if (error) throw error;
+
+        // Push-Benachrichtigung an Team senden (nur bei neuen Meldungen)
+        sendAbsencePushNotifications(
+          { ...dbEntry, childName: entry.childName },
+          entry.groupId
+        ).catch(console.error);
       } else {
         // Update
         const { error } = await supabase
@@ -211,39 +218,86 @@ export default function AbsenceReport({ user }) {
 
   const displayGroups = groups.filter(g => !g.is_event_group);
 
+  // Aktives Kind für Header-Styling
+  const activeChild = children.find((c) => c.id === activeChildId);
+  const activeGroupStyles = activeChild
+    ? getGroupStyles(getGroupById(displayGroups, activeChild.group))
+    : null;
+
   return (
     <div className="space-y-5">
-      <AbsenceBanner />
-
-      {/* CHIP-Auswahl der Kinder */}
-      {children.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {children.map((c) => {
-            const groupStyles = getGroupStyles(
-              getGroupById(displayGroups, c.group)
-            );
-            const active = c.id === activeChildId;
-
-            return (
-              <button
-                key={c.id}
-                onClick={() => {
-                  setActiveChildId(c.id);
-                  setEditing(null);
-                }}
-                className={`flex items-center gap-2 px-3 py-2 rounded-2xl border text-xs font-bold transition whitespace-nowrap ${
-                  active
-                    ? `${groupStyles.chipClass} border-transparent text-white`
-                    : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
-                }`}
-              >
-                <groupStyles.Icon size={14} />
-                <span>{c.name}</span>
-              </button>
-            );
-          })}
+      {/* === HEADER - UI Review Update === */}
+      <div
+        className="p-6 rounded-3xl shadow-sm border border-stone-200 flex flex-col gap-3"
+        style={{
+          backgroundColor: activeGroupStyles?.headerColor || "#f8f9fa",
+        }}
+      >
+        {/* Header Row */}
+        <div className="flex items-center gap-3">
+          <div
+            className={`${
+              activeGroupStyles?.chipClass || "bg-stone-400"
+            } p-2 rounded-2xl text-white shadow`}
+          >
+            {activeGroupStyles ? (
+              <activeGroupStyles.Icon size={20} />
+            ) : (
+              <CalendarDays size={20} />
+            )}
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-stone-800">Meldungen</h2>
+            <p className="text-xs text-stone-600">
+              {children.length === 1
+                ? `Abwesenheiten für ${child.name}`
+                : "Abwesenheiten melden und verwalten"}
+            </p>
+          </div>
         </div>
-      )}
+
+        {/* Kind-Chips (wenn mehrere Kinder) */}
+        {children.length > 1 && (
+          <div className="flex flex-wrap gap-2 mt-1">
+            {children.map((c) => {
+              const groupStyles = getGroupStyles(
+                getGroupById(displayGroups, c.group)
+              );
+              const active = c.id === activeChildId;
+
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    setActiveChildId(c.id);
+                    setEditing(null);
+                  }}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold transition ${
+                    active
+                      ? `${groupStyles.chipClass} border-transparent text-white`
+                      : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
+                  }`}
+                >
+                  <groupStyles.Icon size={14} />
+                  <span>{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {/* === END HEADER === */}
+
+      {/* === INFO-BANNER - UI Review Update === */}
+      <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl flex gap-3 items-start shadow-sm">
+        <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+        <p className="text-sm leading-snug">
+          <strong className="font-semibold">Bitte meldet euer Kind rechtzeitig ab.</strong><br />
+          Bei Krankheit am gleichen Tag bis <strong>08:00 Uhr</strong> wegen der Essensplanung,
+          bei Urlauben frühzeitig.
+        </p>
+      </div>
+      {/* === END INFO-BANNER === */}
 
       {/* Editor */}
       {child && (

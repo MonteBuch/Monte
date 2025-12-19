@@ -138,9 +138,9 @@ export function getGroupStyles(group) {
     return {
       id: "unknown",
       name: "Unbekannt",
-      chipClass: "bg-slate-500 text-white",
-      headerApproxClass: "bg-slate-100",
-      headerColor: "hsl(215,20%,94%)",
+      chipClass: "bg-stone-400 text-white",
+      headerApproxClass: "bg-stone-50",
+      headerColor: "#f8f9fa",
       Icon: DEFAULT_ICON,
     };
   }

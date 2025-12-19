@@ -2,8 +2,9 @@
 import React, { useState } from "react";
 import { Plus } from "lucide-react";
 import { supabase } from "../../api/supabaseClient";
+import { sendListPushNotifications } from "../../api/pushApi";
 
-export default function CreateList({ activeGroup, reload }) {
+export default function CreateList({ activeGroup, groupName, reload }) {
   const [show, setShow] = useState(false);
   const [title, setTitle] = useState("");
   const [type, setType] = useState("bring"); // bring | duty | poll
@@ -37,6 +38,9 @@ export default function CreateList({ activeGroup, reload }) {
       console.error("Fehler beim Speichern der Liste:", error);
       return;
     }
+
+    // Push-Benachrichtigung an Eltern senden
+    sendListPushNotifications(payload, activeGroup, groupName).catch(console.error);
 
     // reset (unverändert)
     setShow(false);

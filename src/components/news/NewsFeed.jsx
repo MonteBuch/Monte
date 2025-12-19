@@ -48,10 +48,14 @@ export default function NewsFeed({ user, news, groups, onDelete }) {
   return (
     <div className="space-y-4">
       {safeNews.map((n) => {
-        const group = n.groupId
-          ? safeGroups.find((g) => g.id === n.groupId)
-          : null;
-        const styles = getGroupStyles(group);
+        // Multi-Gruppen Unterstützung
+        const newsGroupIds = n.groupIds && n.groupIds.length > 0
+          ? n.groupIds
+          : n.groupId ? [n.groupId] : [];
+        const newsGroups = newsGroupIds
+          .map(gid => safeGroups.find(g => g.id === gid))
+          .filter(Boolean);
+        const isGlobal = newsGroupIds.length === 0;
 
         return (
           <div
@@ -63,17 +67,26 @@ export default function NewsFeed({ user, news, groups, onDelete }) {
                 <Megaphone size={16} />
               </div>
               <div className="flex flex-col items-end gap-1">
-                {group ? (
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.chipClass}`}
-                  >
-                    <styles.Icon size={10} />
-                    <span>{styles.name}</span>
-                  </span>
-                ) : (
+                {/* Gruppen-Chips (Multi-Select) */}
+                {isGlobal ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-stone-100 text-stone-700">
                     Alle
                   </span>
+                ) : (
+                  <div className="flex flex-wrap gap-1 justify-end">
+                    {newsGroups.map((group) => {
+                      const styles = getGroupStyles(group);
+                      return (
+                        <span
+                          key={group.id}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${styles.chipClass}`}
+                        >
+                          <styles.Icon size={10} />
+                          <span>{styles.name}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
                 )}
                 <div className="flex items-center gap-1 text-[10px] text-stone-500">
                   <Calendar size={12} />
@@ -81,6 +94,13 @@ export default function NewsFeed({ user, news, groups, onDelete }) {
                 </div>
               </div>
             </div>
+
+            {/* Headline/Titel */}
+            {n.title && (
+              <h3 className="text-base font-bold text-stone-900 leading-tight">
+                {n.title}
+              </h3>
+            )}
 
             {renderContent(n.text)}
 

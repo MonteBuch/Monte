@@ -1,7 +1,8 @@
 // src/components/group/GroupArea.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../api/supabaseClient";
 import { getGroupById, getGroupStyles } from "../../utils/groupUtils";
-import { fetchGroups } from "../../api/groupApi";
+import { useGroups } from "../../context/GroupsContext";
 import { fetchListsByGroup } from "../../api/listApi";
 
 import GroupChips from "./GroupChips";
@@ -16,29 +17,9 @@ export default function GroupArea({ user }) {
   const realChildren = Array.isArray(user.children) ? user.children : [];
 
   // ───────────────────────────────────────────────────────────────
-  // GRUPPEN (Supabase)
+  // GRUPPEN (aus zentralem Context - bereits geladen, mit Realtime)
   // ───────────────────────────────────────────────────────────────
-  const [groups, setGroups] = useState([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadGroups() {
-      try {
-        const supabaseGroups = await fetchGroups();
-        if (!cancelled && Array.isArray(supabaseGroups)) {
-          setGroups(supabaseGroups);
-        }
-      } catch (e) {
-        console.error("Gruppen laden fehlgeschlagen:", e);
-      }
-    }
-
-    loadGroups();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { groups } = useGroups();
 
   // ───────────────────────────────────────────────────────────────
   // EVENT: gibt es irgendeine Liste in der Eventgruppe?
@@ -116,6 +97,58 @@ export default function GroupArea({ user }) {
 
   useEffect(() => {
     loadLists();
+
+    // Realtime Subscription für Listen-Änderungen der aktiven Gruppe
+    if (!activeGroup) return;
+
+    const channel = supabase
+      .channel(`lists-${activeGroup}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "group_lists",
+          filter: `group_id=eq.${activeGroup}`,
+        },
+        (payload) => {
+          console.log("Lists Realtime: INSERT");
+          setLists((prev) => [payload.new, ...prev]);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "group_lists",
+          filter: `group_id=eq.${activeGroup}`,
+        },
+        (payload) => {
+          console.log("Lists Realtime: UPDATE");
+          setLists((prev) =>
+            prev.map((l) => (l.id === payload.new.id ? payload.new : l))
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "group_lists",
+          filter: `group_id=eq.${activeGroup}`,
+        },
+        (payload) => {
+          console.log("Lists Realtime: DELETE");
+          setLists((prev) => prev.filter((l) => l.id !== payload.old.id));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroup]);
 
@@ -266,7 +299,7 @@ export default function GroupArea({ user }) {
       </div>
 
       {isStaff && (
-        <CreateList activeGroup={activeGroup} reload={loadLists} />
+        <CreateList activeGroup={activeGroup} groupName={currentGroup.name} reload={loadLists} />
       )}
     </div>
   );

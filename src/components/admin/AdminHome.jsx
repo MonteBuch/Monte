@@ -1,11 +1,12 @@
 // src/components/admin/AdminHome.jsx
 import React from "react";
 import {
-  ShieldCheck,
   UsersRound,
   UserSquare,
   Cog,
   FolderOpen,
+  Link2,
+  Mail,
 } from "lucide-react";
 import ProfileSection from "../profile/ProfileSection";
 
@@ -24,12 +25,20 @@ export default function AdminHome({ onNavigate }) {
         onClick={() => onNavigate("users")}
       />
 
-      {/* Registrierungscodes */}
+      {/* Einladungslinks (NEU - empfohlen) */}
       <ProfileSection
-        icon={<ShieldCheck size={20} />}
-        title="Codes & Sicherheit"
-        subtitle="Registrierungscodes bearbeiten"
-        onClick={() => onNavigate("codes")}
+        icon={<Link2 size={20} />}
+        title="Einladungslinks"
+        subtitle="Sichere Einmal-Links erstellen"
+        onClick={() => onNavigate("invites")}
+      />
+
+      {/* Email-Verzeichnis */}
+      <ProfileSection
+        icon={<Mail size={20} />}
+        title="Email-Verzeichnis"
+        subtitle="Eltern-Emails für Benachrichtigungen"
+        onClick={() => onNavigate("emails")}
       />
 
       {/* Einrichtungsinfos */}
@@ -48,12 +57,12 @@ export default function AdminHome({ onNavigate }) {
         onClick={() => onNavigate("groups")}
       />
 
-      {/* System-Tools – für zukünftige Erweiterungen */}
+      {/* System-Tools */}
       <ProfileSection
         icon={<FolderOpen size={20} />}
         title="System-Tools"
-        subtitle="Daten, Backups, Reset (bald)"
-        onClick={() => alert('Wird in späterer Phase implementiert.')}
+        subtitle="Export, Reset & Einstellungen"
+        onClick={() => onNavigate("system")}
       />
     </div>
   );

@@ -32,6 +32,7 @@ export default function AdminUsers() {
           .select(`
             id,
             full_name,
+            email,
             role,
             primary_group,
             must_reset_password,
@@ -51,6 +52,7 @@ export default function AdminUsers() {
         const formattedUsers = (profilesData || []).map(p => ({
           id: p.id,
           name: p.full_name,
+          email: p.email,
           role: p.role,
           primaryGroup: p.primary_group,
           mustResetPassword: p.must_reset_password,
@@ -176,29 +178,20 @@ export default function AdminUsers() {
   const confirmDelete = async () => {
     if (!confirmDeleteUser) return;
 
-    const admins = users.filter((u) => u.role === "admin");
-    const isLastAdmin = confirmDeleteUser.role === "admin" && admins.length <= 1;
-
-    if (isLastAdmin) {
-      alert("Es muss mindestens eine Leitung (Admin) bestehen bleiben.");
-      setConfirmDeleteUser(null);
-      return;
-    }
-
     try {
-      // Kinder löschen
-      await supabase.from("children").delete().eq("user_id", confirmDeleteUser.id);
-
-      // Profil löschen
-      const { error } = await supabase
-        .from("profiles")
-        .delete()
-        .eq("id", confirmDeleteUser.id);
+      // Komplette Löschung über SECURITY DEFINER Funktion
+      // Löscht: Kinder, Notification Preferences, News Hidden, Profil, Auth User
+      const { data, error } = await supabase.rpc("delete_user_completely", {
+        p_user_id: confirmDeleteUser.id,
+      });
 
       if (error) throw error;
 
-      // Auth-User kann nur über Supabase Admin API gelöscht werden
-      // Profil-Löschung reicht für die App-Funktionalität
+      if (data && !data.success) {
+        alert(data.error || "Löschen fehlgeschlagen");
+        setConfirmDeleteUser(null);
+        return;
+      }
 
       setUsers(prev => prev.filter(u => u.id !== confirmDeleteUser.id));
       setConfirmDeleteUser(null);
@@ -235,6 +228,104 @@ export default function AdminUsers() {
     }
   };
 
+  // Benutzer einer Rolle rendern
+  const renderUserSection = (role, sectionTitle, Icon) => {
+    const roleUsers = users.filter(u => u.role === role);
+
+    if (roleUsers.length === 0) return null;
+
+    return (
+      <div className="space-y-3">
+        {/* Sektion Header */}
+        <div className="flex items-center gap-2 pt-2">
+          <div className="p-1.5 rounded-lg bg-stone-100 text-stone-600">
+            <Icon size={14} />
+          </div>
+          <h3 className="text-sm font-bold text-stone-700">
+            {sectionTitle} ({roleUsers.length})
+          </h3>
+        </div>
+
+        {/* Benutzer-Karten */}
+        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm divide-y divide-stone-100">
+          {roleUsers.map((u) => {
+            const group = u.primaryGroup ? getGroupById(u.primaryGroup) : null;
+            const summary = childSummary(u);
+
+            return (
+              <div
+                key={u.id}
+                className="p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-stone-100 text-stone-700">
+                    <Icon size={18} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-sm text-stone-800">
+                        {u.name}
+                      </span>
+                      {u.mustResetPassword && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                          Passwort-Reset aktiv
+                        </span>
+                      )}
+                    </div>
+
+                    {group && u.role === "team" && (
+                      <p className="text-xs text-stone-500 flex items-center gap-2">
+                        Stammgruppe:
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold ${
+                            group.light || "bg-stone-100 text-stone-700"
+                          }`}
+                        >
+                          {group.name}
+                        </span>
+                      </p>
+                    )}
+
+                    {summary && (
+                      <p className="text-xs text-stone-500">{summary}</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Aktionen */}
+                <div className="flex items-center gap-2 pt-1 sm:pt-0">
+                  <button
+                    onClick={() => openEdit(u)}
+                    className="p-2 rounded-xl bg-stone-100 text-stone-700 hover:bg-stone-200 active:scale-95"
+                    title="Bearbeiten"
+                  >
+                    <Pencil size={16} />
+                  </button>
+
+                  <button
+                    onClick={() => requestReset(u)}
+                    className="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 active:scale-95"
+                    title="Passwort zurücksetzen"
+                  >
+                    <KeyRound size={16} />
+                  </button>
+
+                  <button
+                    onClick={() => requestDelete(u)}
+                    className="p-2 rounded-xl bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95"
+                    title="Benutzer löschen"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -252,97 +343,10 @@ export default function AdminUsers() {
         Du kannst Benutzer bearbeiten, Passwörter zurücksetzen oder Accounts löschen.
       </p>
 
-      {/* Liste der Benutzer */}
-      <div className="bg-white rounded-2xl border border-stone-200 shadow-sm divide-y divide-stone-100">
-        {users.map((u) => {
-          const group = u.primaryGroup ? getGroupById(u.primaryGroup) : null;
-          const summary = childSummary(u);
-
-          return (
-            <div
-              key={u.id}
-              className="p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-xl bg-stone-100 text-stone-700">
-                  {u.role === "admin" ? (
-                    <Shield size={18} />
-                  ) : u.role === "team" ? (
-                    <Users size={18} />
-                  ) : (
-                    <User size={18} />
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-sm text-stone-800">
-                      {u.name}
-                    </span>
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 font-semibold uppercase tracking-wide">
-                      {roleLabel(u.role)}
-                    </span>
-                    {u.mustResetPassword && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                        Passwort-Reset aktiv
-                      </span>
-                    )}
-                  </div>
-
-                  {group && (u.role === "team" || u.role === "admin") && (
-                    <p className="text-xs text-stone-500 flex items-center gap-2">
-                      Stammgruppe:
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold ${
-                          group.light || "bg-stone-100 text-stone-700"
-                        }`}
-                      >
-                        {group.name}
-                      </span>
-                    </p>
-                  )}
-
-                  {summary && (
-                    <p className="text-xs text-stone-500">{summary}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Aktionen */}
-              <div className="flex items-center gap-2 pt-1 sm:pt-0">
-                <button
-                  onClick={() => openEdit(u)}
-                  className="p-2 rounded-xl bg-stone-100 text-stone-700 hover:bg-stone-200 active:scale-95"
-                  title="Bearbeiten"
-                >
-                  <Pencil size={16} />
-                </button>
-
-                <button
-                  onClick={() => requestReset(u)}
-                  className="p-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 active:scale-95"
-                  title="Passwort zurücksetzen"
-                >
-                  <KeyRound size={16} />
-                </button>
-
-                <button
-                  onClick={() => requestDelete(u)}
-                  className="p-2 rounded-xl bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95"
-                  title="Benutzer löschen"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          );
-        })}
-
-        {users.length === 0 && (
-          <div className="p-4 text-xs text-stone-500 text-center">
-            Noch keine Benutzer angelegt.
-          </div>
-        )}
-      </div>
+      {/* Benutzer nach Rolle gruppiert */}
+      {renderUserSection("admin", "Leitung", Shield)}
+      {renderUserSection("team", "Team", Users)}
+      {renderUserSection("parent", "Eltern", User)}
 
       {/* EDIT-MODAL */}
       {editingUser && (

@@ -1,60 +1,298 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-Montessori Kinderhaus App - A React-based kindergarten management application for German-speaking Montessori daycare facilities. The app manages groups, children, news, food plans, and absence reporting with role-based access (parent/team/admin).
+**Montessori Kinderhaus App "Monte"** - A React-based kindergarten management application for German-speaking Montessori daycare facilities. The app manages groups, children, news, food plans, and absence reporting with role-based access (parent/team/admin).
+
+**Goal**: Production-ready app available as Web-App AND Native Mobile App (iOS/Android).
 
 ## Development Commands
 
 ```bash
-npm run dev      # Start development server on port 5173
-npm run build    # Build for production
-npm run preview  # Preview production build
+npm run dev          # Start development server on port 5173
+npm run build        # Build for production
+npm run preview      # Preview production build
+npm run cap:sync     # Build + sync to Android
+npm run cap:open     # Open Android Studio
+npm run cap:run      # Run on Android device/emulator
 ```
+
+## Current State (as of 2025-12-19)
+
+### Migration Status: 100% Complete
+
+**Fully migrated to Supabase:**
+- Auth (Supabase Auth with profiles table, fcm_token for push)
+- Groups (groups table)
+- Children (children table)
+- News (news table)
+- Group Lists/Polls (group_lists table)
+- Absences (absences table)
+- Meal Plans (meal_plans + meal_options tables)
+- Notification Preferences (notification_preferences table)
+- Facilities (facilities table with display_name, logo_url)
+- Invite Links (invite_links table - replaces registration codes)
+
+### Database Schema (Supabase)
+
+```
+facilities (1 row)
+├── id, name, display_name, logo_url, address, phone, email, opening_hours, info_text
+├── profiles (linked to auth.users)
+│   ├── id, email, full_name, role, facility_id, primary_group, fcm_token
+│   ├── children (user_id → profiles.id)
+│   └── notification_preferences (user_id → profiles.id)
+├── groups (facility_id → facilities.id)
+│   ├── group_lists (group_id → groups.id)
+│   └── children (group_id → groups.id)
+├── news (facility_id, group_id optional, group_ids array)
+├── absences (facility_id, child_id, group_id)
+├── meal_plans (facility_id, week_key, day_key)
+├── meal_options (facility_id, meal_type)
+└── invite_links (facility_id, token, role, max_uses, used_count, expires_at)
+```
+
+### Storage Buckets
+- `news-attachments` - Anhänge für News-Beiträge
+- `facility-logos` - Logos für Einrichtungen (public)
 
 ## Architecture
 
 ### Tech Stack
 - **Frontend**: React 18 with Vite, TailwindCSS
-- **Backend**: Supabase (PostgreSQL database + Auth)
+- **Backend**: Supabase (PostgreSQL + Auth + Storage + Realtime + Edge Functions)
+- **Mobile**: Capacitor (Android ready, iOS needs Mac)
 - **Rich Text**: TipTap editor for news creation
 - **Drag & Drop**: @hello-pangea/dnd for list reordering
 - **Icons**: lucide-react
-
-### Data Layer
-- `src/api/supabaseClient.js` - Supabase client singleton
-- `src/api/groupApi.js` - Group CRUD operations
-- `src/api/userApi.js` - User profile/children data
-- `src/api/listApi.js` - Group lists and polls
-- `src/lib/storage.js` - Local storage utilities
-
-### Database Tables (Supabase)
-- `profiles` - User profiles with role (parent/team/admin) and facility assignment
-- `children` - Children linked to users and groups
-- `groups` - Kindergarten groups (Erde, Sonne, Feuer, Wasser, Blume) with colors/icons
-- `facilities` - Daycare facilities
-- `news` - Announcements with attachments
-- `group_lists` - Lists/polls per group
+- **PWA**: vite-plugin-pwa + Workbox
+- **Push**: Firebase Cloud Messaging (FCM) via Capacitor
 
 ### Component Structure
-- `src/App.jsx` - Main app with tab navigation and auth flow
-- `src/components/auth/` - Login, registration, password reset
-- `src/components/news/` - News feed and creation
-- `src/components/group/` - Group area with lists/polls
-- `src/components/food/` - Meal planning (week view)
-- `src/components/absence/` - Absence reporting (different views per role)
-- `src/components/profile/` - User settings, children management
-- `src/components/admin/` - Admin tools, user management, group management
+```
+src/
+├── App.jsx                    # Main app with FacilityProvider wrapper
+├── api/
+│   ├── supabaseClient.js      # Supabase client
+│   ├── groupApi.js
+│   ├── userApi.js
+│   ├── listApi.js
+│   ├── emailApi.js            # Email notifications via Edge Function
+│   └── pushApi.js             # Push notifications via Edge Function (NEW)
+├── context/
+│   ├── GroupsContext.jsx      # Shared groups state with Realtime
+│   └── FacilityContext.jsx    # Facility data (name, logo) with Realtime
+├── components/
+│   ├── auth/                  # Login, Registration, ForceReset
+│   ├── news/                  # News feed and TipTap editor
+│   ├── group/                 # Group area with lists/polls
+│   ├── food/                  # Meal planning (week view)
+│   ├── absence/               # Absence reporting (role-based views)
+│   ├── profile/               # User settings, children management
+│   ├── admin/                 # Admin tools including SystemTools
+│   └── ui/                    # Reusable components (Toast, LoadingSpinner, InstallPrompt)
+├── lib/
+│   ├── constants.jsx          # FACILITY_ID
+│   ├── biometricAuth.js       # Native biometric auth (NEW)
+│   └── pushNotifications.js   # FCM registration (NEW)
+└── utils/
+    └── groupUtils.js          # Group colors, icons, styling
+```
 
-### User Roles
-- **parent**: Can view news, report absences, manage their children
-- **team**: Can edit food plans, view team absences, manage group content
-- **admin**: Full access including user management and facility settings
+### User Roles & Permissions
+| Feature | Parent | Team | Admin |
+|---------|--------|------|-------|
+| View News | Own groups | All | All |
+| Create News | - | Yes | Yes |
+| View Absences | Own children | All | All |
+| Create Absences | Own children | - | - |
+| Manage Absences | - | Yes | Yes |
+| Edit Food Plan | - | Yes | Yes |
+| Manage Lists | Vote/Accept | Full | Full |
+| User Management | - | - | Yes |
+| System Tools | - | - | Yes |
 
-### Key Patterns
-- Session stored in `sessionStorage` under `montessori_session`
-- Default registration codes defined in `src/lib/constants.jsx`
-- Groups have `is_event_group` flag for special event group handling
-- Profile views use sub-navigation pattern (`profileView` state)
+### Notification Preferences by Role
+| Kategorie | Eltern | Team | Admin |
+|-----------|--------|------|-------|
+| news | Neue Mitteilung | - | Neue Mitteilung |
+| lists | Neue Listen/Abstimmungen | Aktivität auf Listen | - |
+| food | Neuer Speiseplan | - | - |
+| absences | - | Neue Meldungen | Neue Meldungen |
+| birthdays | - | Geburtstage in Gruppe | - |
+
+## Production Roadmap
+
+### Phase 1: Code Cleanup & Hardening (COMPLETED)
+- [x] Remove unused legacy code
+- [x] Add error boundaries
+- [x] Toast notification system
+- [x] Loading states (LoadingSpinner, SkeletonList)
+
+### Phase 2: Security Improvements (COMPLETED)
+- [x] One-time invite links (replaces registration codes)
+- [x] Email verification
+- [x] Password policies (8+ chars, uppercase, lowercase, number)
+- [x] Password strength meter
+- [x] Fixed RLS policies
+
+### Phase 3: Realtime & Notifications (PARTIALLY COMPLETE)
+- [x] Supabase Realtime subscriptions (News, Groups, GroupLists, Facilities)
+- [x] Performance optimizations (parallel loading, shared contexts)
+- [x] Email notification Edge Function (send-news-email)
+- [ ] **Resend Domain-Verifikation** - DNS NICHT KOMPLETT (siehe unten)
+- [ ] **Email-Versand testen** - Nach Domain-Verifikation
+- [ ] Realtime in Supabase Dashboard aktivieren (Database → Replication)
+
+### Phase 4: PWA / Offline Support (COMPLETED)
+- [x] Service Worker (vite-plugin-pwa + Workbox)
+- [x] Cache strategies (NetworkFirst für API, CacheFirst für Assets)
+- [x] Install prompt (Add to Home Screen)
+- [x] Web App Manifest mit Icons
+
+### Phase 4.5: System-Tools (COMPLETED)
+- [x] Datenexport (Benutzer + Email-Listen als CSV)
+- [x] App-Name (Branding) mit display_name
+- [x] Logo-Upload mit Cropper
+- [x] System-Reset mit Sicherheitsabfrage
+
+### Phase 5: Native Mobile App (IN PROGRESS)
+- [x] Capacitor Core installiert
+- [x] Android Projekt erstellt (`android/` Ordner)
+- [x] Biometrische Authentifizierung (Fingerabdruck)
+- [x] Firebase Cloud Messaging (FCM) konfiguriert
+- [x] Push Notifications Plugin (@capacitor/push-notifications)
+- [x] FCM Token Registration in profiles.fcm_token
+- [x] Edge Function: send-push-notification (FCM V1 API)
+- [x] Push-Trigger für alle Kategorien implementiert:
+  - news: Bei News-Erstellung → Eltern
+  - lists: Bei Listen-Erstellung → Eltern der Gruppe
+  - absences: Bei Abwesenheitsmeldung → Team der Gruppe
+  - food: Bei Speiseplan-Speicherung → Alle Eltern
+- [ ] **NÄCHSTER SCHRITT: Deployment für stabile Tests**
+- [ ] iOS Projekt (benötigt Mac)
+- [ ] App Store / Play Store Submission
+
+### Phase 6: Production Infrastructure (PENDING)
+- [ ] Supabase production project (separate from dev)
+- [ ] Custom domain für Web-App
+- [ ] Monitoring/Error tracking (Sentry)
+- [ ] Deployment documentation
+
+---
+
+## NÄCHSTE OFFENE SCHRITTE
+
+### 1. Resend Domain-Verifikation (BLOCKIERT)
+
+**Problem:** Die DNS-Einstellungen bei Strato sind unvollständig.
+
+**Aktuelle Situation:**
+- TXT-Records für DKIM wurden eingetragen
+- SPF-Record wurde eingetragen
+- **MX-Record für Subdomain `send` konnte NICHT angelegt werden** (Strato-Limitation)
+
+**Was bei Strato eingetragen wurde:**
+```
+TXT  resend._domainkey  (DKIM-Schlüssel von Resend)
+TXT  @                  v=spf1 include:amazonses.com ~all
+```
+
+**Was FEHLT:**
+```
+MX   send              feedback-smtp.eu-west-1.amazonses.com (Priorität 10)
+```
+
+**Lösung:**
+1. Bei Strato prüfen ob MX für Subdomains möglich ist (evtl. unter "Subdomain verwalten")
+2. Alternative: Bei Resend auf "DNS Only" Verifikation umstellen (ohne MX)
+3. Alternative: Anderen DNS-Provider nutzen (z.B. Cloudflare)
+
+**Nach Verifikation:**
+- In Supabase Edge Function Secrets `FROM_EMAIL` setzen
+- Test-Email senden
+
+### 2. Stabiles Deployment für Tests
+
+**Problem:** App läuft aktuell nur lokal (localhost:5173).
+
+**Optionen:**
+1. **Vercel/Netlify** - Einfachstes Deployment für Web-App
+2. **Supabase Hosting** - Falls verfügbar
+3. **Android APK** - Für Mobile-Tests ohne Play Store
+
+**Für Android-Tests:**
+```bash
+# In Android Studio: Build → Build Bundle(s) / APK(s) → Build APK(s)
+# APK liegt dann in: android/app/build/outputs/apk/debug/
+```
+
+### 3. Supabase Realtime aktivieren
+
+Im Supabase Dashboard unter Database → Replication:
+- `news` aktivieren
+- `groups` aktivieren
+- `group_lists` aktivieren
+- `facilities` aktivieren
+
+---
+
+## Edge Functions
+
+### send-news-email
+- Sendet Email-Benachrichtigungen für News
+- Nutzt Resend API
+- Secrets: `RESEND_API_KEY`, `FROM_EMAIL`
+
+### send-push-notification
+- Sendet Push-Benachrichtigungen via FCM V1 API
+- Unterstützt Kategorien: news, lists, absences, food
+- Respektiert notification_preferences
+- Secrets: `FIREBASE_SERVICE_ACCOUNT` (JSON)
+- `verify_jwt: false` für Tests (sollte für Produktion aktiviert werden)
+
+---
+
+## Capacitor / Android
+
+### Konfiguration
+- `capacitor.config.json` - App-ID: `de.montessori.kinderhaus.monte`
+- `android/` - Android Studio Projekt
+- Firebase: `android/app/google-services.json` (manuell hinzugefügt)
+
+### Wichtige Dateien
+- `src/lib/biometricAuth.js` - Biometrische Authentifizierung
+- `src/lib/pushNotifications.js` - FCM Token Registration
+- `src/api/pushApi.js` - Push API Funktionen
+
+### Android Studio
+1. `npm run cap:open` oder Android Studio manuell öffnen
+2. Projekt: `C:\Users\abcep\Desktop\Monte\android`
+3. Run auf Emulator oder physischem Gerät
+
+---
+
+## Notes for Future Sessions
+
+### Quick Start
+1. Lies diese CLAUDE.md für Kontext
+2. `npm run dev` zum Starten
+3. Prüfe "NÄCHSTE OFFENE SCHRITTE" oben
+
+### Supabase MCP verfügbar
+```javascript
+// Migration anwenden
+mcp__supabase__apply_migration({ name: "migration_name", query: "SQL" });
+
+// SQL ausführen
+mcp__supabase__execute_sql({ query: "SELECT * FROM facilities" });
+
+// Edge Function deployen
+mcp__supabase__deploy_edge_function({ name: "function-name", files: [...] });
+```
+
+### Constants
+- `FACILITY_ID` in `src/lib/constants.jsx` - Hardcoded für Single-Tenant
+- Firebase Project: `monte-app` (oder wie bei Setup benannt)

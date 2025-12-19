@@ -14,7 +14,13 @@ const REASON_STYLES = {
 export default function AdminAbsenceDashboard({ user }) {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [groupId, setGroupId] = useState(null);
+  // Team-User: Stammgruppe als Default, sonst "all"
+  const [groupId, setGroupId] = useState(() => {
+    if (user.role === "team" && user.primaryGroup) {
+      return user.primaryGroup;
+    }
+    return "all";
+  });
   const [activeTab, setActiveTab] = useState("new");
   const [entries, setEntries] = useState([]);
   const [allAbsences, setAllAbsences] = useState([]);
@@ -44,7 +50,7 @@ export default function AdminAbsenceDashboard({ user }) {
     loadGroups();
   }, []);
 
-  // Absences laden
+  // Absences laden und alte gelesene automatisch löschen
   const loadAbsences = useCallback(async () => {
     setLoading(true);
     try {
@@ -56,7 +62,37 @@ export default function AdminAbsenceDashboard({ user }) {
 
       if (error) throw error;
 
-      const formatted = (data || []).map((a) => ({
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Alte gelesene Meldungen identifizieren und löschen
+      const toDelete = (data || []).filter((a) => {
+        if (a.status !== "read") return false;
+
+        // Relevantes Enddatum ermitteln (bei Einzeldatum = date_from, bei Zeitraum = date_to)
+        const endDateStr = a.type === "single" ? a.date_from : a.date_to;
+        const endDate = new Date(endDateStr);
+        endDate.setHours(0, 0, 0, 0);
+
+        // Löschen wenn Enddatum in der Vergangenheit liegt
+        return endDate < today;
+      });
+
+      // Alte Meldungen löschen
+      if (toDelete.length > 0) {
+        const idsToDelete = toDelete.map((a) => a.id);
+        await supabase
+          .from("absences")
+          .delete()
+          .in("id", idsToDelete);
+
+        console.log(`${toDelete.length} vergangene gelesene Meldungen automatisch gelöscht.`);
+      }
+
+      // Nur nicht-gelöschte Meldungen formatieren
+      const remaining = (data || []).filter((a) => !toDelete.some((d) => d.id === a.id));
+
+      const formatted = remaining.map((a) => ({
         id: a.id,
         childId: a.child_id,
         childName: a.child_name,
@@ -82,13 +118,20 @@ export default function AdminAbsenceDashboard({ user }) {
     loadAbsences();
   }, [loadAbsences]);
 
-  // Entries für aktuelle Gruppe filtern
+  // Entries für aktuelle Gruppe filtern (oder alle bei "all")
   useEffect(() => {
-    if (groupId) {
+    if (groupId === "all") {
+      // Alle Absences (außer Event-Gruppen)
+      const filtered = allAbsences.filter((e) => {
+        const isEventGroup = groups.find((g) => g.id === e.groupId)?.is_event_group;
+        return !isEventGroup;
+      });
+      setEntries(filtered);
+    } else if (groupId) {
       const filtered = allAbsences.filter((e) => e.groupId === groupId);
       setEntries(filtered);
     }
-  }, [groupId, allAbsences]);
+  }, [groupId, allAbsences, groups]);
 
   const markRead = async (id) => {
     try {
@@ -164,6 +207,11 @@ export default function AdminAbsenceDashboard({ user }) {
     }, {});
   }, [allAbsences, groups]);
 
+  // Gesamtzahl ungelesener Meldungen (für "Alle")
+  const totalUnreadCount = useMemo(() => {
+    return Object.values(unreadCountByGroup).reduce((sum, count) => sum + count, 0);
+  }, [unreadCountByGroup]);
+
   function formatDate(iso) {
     return new Date(iso).toLocaleDateString("de-DE");
   }
@@ -176,13 +224,18 @@ export default function AdminAbsenceDashboard({ user }) {
   const renderCard = (e, faded = false) => {
     const reasonStyle = REASON_STYLES[e.reason] || REASON_STYLES.sonstiges;
 
+    // Gruppenchip nur bei "Alle"-Ansicht anzeigen
+    const showGroupChip = groupId === "all";
+    const entryGroup = showGroupChip ? getGroupById(groups, e.groupId) : null;
+    const entryGroupStyles = showGroupChip ? getGroupStyles(entryGroup) : null;
+
     return (
       <div
         key={e.id}
         className={`p-4 rounded-2xl border shadow-sm ${
           faded
             ? "bg-stone-50 border-stone-200 opacity-70"
-            : "bg-white border-amber-200"
+            : "bg-white border-stone-200"
         }`}
       >
         <div className="flex justify-between items-start gap-4">
@@ -233,6 +286,14 @@ export default function AdminAbsenceDashboard({ user }) {
                 <Trash2 size={16} />
               </button>
             </div>
+
+            {/* Gruppenchip bei "Alle"-Ansicht - rechts unten */}
+            {showGroupChip && entryGroupStyles && (
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${entryGroupStyles.chipClass} text-white`}>
+                <entryGroupStyles.Icon size={10} />
+                {entryGroupStyles.name}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -251,26 +312,53 @@ export default function AdminAbsenceDashboard({ user }) {
     <div className="space-y-6">
       {/* ✅ NUR DER HEADER (KEIN EXTRA „ABWESENHEITEN") */}
       <div
-        className="p-6 rounded-3xl shadow-sm border border-stone-100 flex flex-col gap-3"
-        style={{ backgroundColor: currentGroup?.headerColor }}
+        className="p-6 rounded-3xl shadow-sm border border-stone-200 flex flex-col gap-3"
+        style={{ backgroundColor: groupId === "all" ? "#f8f9fa" : currentGroup?.headerColor }}
       >
         <div className="flex items-center gap-3">
-          <div
-            className={`${currentGroup?.chipClass} p-2 rounded-2xl text-white shadow`}
-          >
-            {currentGroup && <currentGroup.Icon size={20} />}
-          </div>
+          {groupId === "all" ? (
+            <div className="bg-stone-400 p-2 rounded-2xl text-white shadow">
+              <CalendarDays size={20} />
+            </div>
+          ) : (
+            <div
+              className={`${currentGroup?.chipClass} p-2 rounded-2xl text-white shadow`}
+            >
+              {currentGroup && <currentGroup.Icon size={20} />}
+            </div>
+          )}
 
           <div>
             <h2 className="text-lg font-bold text-stone-800">Meldungen</h2>
             <p className="text-xs text-stone-600">
-              Abwesenheiten der Gruppe {currentGroup?.name}
+              {groupId === "all"
+                ? "Alle Abwesenheiten aller Gruppen"
+                : `Abwesenheiten der Gruppe ${currentGroup?.name}`}
             </p>
           </div>
         </div>
 
-        {/* ✅ CHIP-LEISTE MIT BADGES (NICHT MEHR ABGESCHNITTEN) */}
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+        {/* ✅ CHIP-LEISTE MIT BADGES (MEHRZEILIG) */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {/* ALLE-Button */}
+          <button
+            onClick={() => setGroupId("all")}
+            className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold transition ${
+              groupId === "all"
+                ? "bg-stone-600 border-transparent text-white"
+                : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"
+            }`}
+          >
+            <CalendarDays size={14} />
+            <span>Alle</span>
+
+            {totalUnreadCount > 0 && (
+              <span className="ml-1 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-400 text-[10px] font-bold flex items-center justify-center text-stone-900">
+                {totalUnreadCount}
+              </span>
+            )}
+          </button>
+
           {groups.map((g) => {
             const styles = getGroupStyles(g);
             const active = g.id === groupId;
@@ -280,7 +368,7 @@ export default function AdminAbsenceDashboard({ user }) {
               <button
                 key={g.id}
                 onClick={() => setGroupId(g.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold whitespace-nowrap transition ${
+                className={`flex items-center gap-2 px-3 py-2 rounded-full border text-xs font-bold transition ${
                   active
                     ? `${styles.chipClass} border-transparent text-white`
                     : "bg-stone-50 text-stone-600 border-stone-300 hover:bg-stone-100"

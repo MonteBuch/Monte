@@ -53,20 +53,20 @@ export default function ListItems({
 
     const items = [...list.items];
     const item = { ...items[itemIndex] };
-    const me = user.username;
+    const myId = user.id;
 
     // Kindername des aktuellen Users ermitteln
     const myChildName = Array.isArray(user.children) && user.children.length > 0
       ? user.children[0]?.name
-      : null;
+      : user.name;
 
-    if (item.assignedTo === me) {
+    if (item.assignedTo === myId) {
       // Abgeben
       item.assignedTo = null;
       item.assignedName = null;
     } else {
       // Übernehmen
-      item.assignedTo = me;
+      item.assignedTo = myId;
       item.assignedName = myChildName;
     }
 
@@ -84,10 +84,16 @@ export default function ListItems({
 
     const items = [...list.items];
 
+    // Kindername für Anzeige
+    const myChildName = Array.isArray(user.children) && user.children.length > 0
+      ? user.children[0]?.name
+      : user.name;
+
     items.push({
       label: newItem.trim(),
-      assignedTo: user.username, // automatisch übernommen
-      createdBy: user.username,
+      assignedTo: user.id, // automatisch übernommen
+      assignedName: myChildName,
+      createdBy: user.id,
     });
 
     setNewItem("");
@@ -100,7 +106,7 @@ export default function ListItems({
   const deleteItem = async (itemIndex) => {
     const item = list.items[itemIndex];
 
-    if (item.createdBy !== user.username) return;
+    if (item.createdBy !== user.id) return;
 
     const items = [...list.items];
     items.splice(itemIndex, 1);
@@ -117,7 +123,7 @@ export default function ListItems({
       {list.items?.length > 0 ? (
         list.items.map((item, idx) => {
           const assigned = item.assignedTo;
-          const isMine = assigned === user.username;
+          const isMine = assigned === user.id;
 
           const displayName = assigned
             ? isMine
@@ -149,17 +155,17 @@ export default function ListItems({
   )}
 
   {/* Eltern – übernehmen (frei) oder abgeben (eigener Eintrag) */}
-  {!isAdmin && (!assigned || assigned === user.username) && (
+  {!isAdmin && (!assigned || assigned === user.id) && (
     <button
       onClick={() => toggleAssign(idx)}
       className="px-2 py-0.5 bg-white border border-stone-200 rounded-lg hover:bg-stone-100 text-[10px] font-bold"
     >
-      {assigned === user.username ? "Abgeben" : "Übernehmen"}
+      {assigned === user.id ? "Abgeben" : "Übernehmen"}
     </button>
   )}
 
   {/* Eltern – eigene Items löschen */}
-  {!isAdmin && item.createdBy === user.username && (
+  {!isAdmin && item.createdBy === user.id && (
     <button
       onClick={() => deleteItem(idx)}
       className="p-1 bg-red-50 text-red-500 rounded hover:bg-red-100"

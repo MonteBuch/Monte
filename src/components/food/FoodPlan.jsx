@@ -1,11 +1,12 @@
 // src/components/food/FoodPlan.jsx
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Pencil, Check, Utensils, Loader2 } from "lucide-react";
+import { Pencil, Check, Utensils, Loader2, X, UtensilsCrossed } from "lucide-react";
 import DayCard from "./DayCard";
 import MealSelectionModal from "./MealSelectionModal";
 import { supabase } from "../../api/supabaseClient";
 import { FACILITY_ID } from "../../lib/constants";
+import { sendFoodPlanPushNotifications } from "../../api/pushApi";
 
 // --------------------------------------------
 // WEEKDAY CONSTANTS
@@ -17,6 +18,37 @@ const WEEKDAYS = [
   { key: "thursday", label: "Do" },
   { key: "friday", label: "Fr" },
 ];
+
+// Map JS day index (0=Sun, 1=Mon, ...) to weekday key
+const DAY_INDEX_TO_KEY = {
+  1: "monday",
+  2: "tuesday",
+  3: "wednesday",
+  4: "thursday",
+  5: "friday",
+};
+
+// --------------------------------------------
+// HELPER: Get weekdays ordered for parents
+// Current day first, then Mon-Fri (excluding current)
+// --------------------------------------------
+function getOrderedWeekdaysForParent() {
+  const today = new Date();
+  const dayIndex = today.getDay(); // 0=Sun, 1=Mon, ...
+  const currentKey = DAY_INDEX_TO_KEY[dayIndex];
+
+  // Weekend or invalid: show normal order
+  if (!currentKey) {
+    return WEEKDAYS;
+  }
+
+  // Current day first
+  const currentDay = WEEKDAYS.find((d) => d.key === currentKey);
+  // Remaining days in Mon-Fri order (excluding current)
+  const otherDays = WEEKDAYS.filter((d) => d.key !== currentKey);
+
+  return [currentDay, ...otherDays];
+}
 
 const EMPTY_DAY = {
   breakfast: "",
@@ -315,6 +347,9 @@ export default function FoodPlan({ isAdmin }) {
 
       setSaveState("saved");
 
+      // Push-Benachrichtigung an Eltern senden
+      sendFoodPlanPushNotifications(getCurrentWeekRange()).catch(console.error);
+
       // Let animation be visible FIRST
       setTimeout(() => {
         setSaveState("idle");
@@ -327,6 +362,17 @@ export default function FoodPlan({ isAdmin }) {
       alert("Fehler beim Speichern: " + err.message);
       setSaveState("idle");
     }
+  };
+
+  // ------------------------------------------------
+  // CANCEL (discard changes)
+  // ------------------------------------------------
+  const handleCancel = async () => {
+    setEditMode(false);
+    setDirty(false);
+    setSaveState("idle");
+    // Reload original data
+    await loadMealPlan();
   };
 
   const weekRange = getCurrentWeekRange();
@@ -344,18 +390,22 @@ export default function FoodPlan({ isAdmin }) {
 
   return (
     <>
-      {/* HEADER */}
-      <div className="bg-white rounded-3xl shadow-sm border border-[#f2eee4] px-5 py-4 mb-4 flex items-center gap-3">
-
-        <div className="flex-1">
-          <h2 className="text-lg font-bold text-stone-900">Speiseplan</h2>
-          <div className="inline-flex mt-2 px-3 py-1 rounded-full bg-stone-100">
-            <span className="text-xs text-stone-600">Woche: {weekRange}</span>
+      {/* === HEADER - UI Review Update === */}
+      <div
+        className="p-5 rounded-3xl shadow-sm border border-stone-200 mb-4"
+        style={{ backgroundColor: "#f8f9fa" }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="bg-stone-400 p-2 rounded-2xl text-white shadow">
+            <UtensilsCrossed size={18} />
           </div>
-        </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-bold text-stone-800">Speiseplan</h2>
+            <p className="text-xs text-stone-600">Woche: {weekRange}</p>
+          </div>
 
-        {/* RIGHT SIDE BUTTONS */}
-        {isAdmin && (
+          {/* RIGHT SIDE BUTTONS */}
+          {isAdmin && (
           <>
             {saveState === "saving" || saveState === "saved" ? (
               <button
@@ -379,19 +429,29 @@ export default function FoodPlan({ isAdmin }) {
                 </span>
               </button>
             ) : editMode ? (
-              <button
-                type="button"
-                disabled={!dirty}
-                onClick={handleSave}
-                className={`save-button save-button--idle ${
-                  !dirty ? "save-button--disabled" : ""
-                }`}
-              >
-                <span className="save-button__content">
-                  <Utensils size={16} />
-                  <span>Speichern</span>
-                </span>
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={!dirty}
+                  onClick={handleSave}
+                  className={`save-button save-button--idle ${
+                    !dirty ? "save-button--disabled" : ""
+                  }`}
+                >
+                  <span className="save-button__content">
+                    <Utensils size={16} />
+                    <span>Speichern</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="px-3 py-2 flex items-center justify-center gap-1 rounded-xl bg-stone-100 text-stone-600 hover:bg-stone-200 text-sm font-medium"
+                >
+                  <X size={14} />
+                  <span>Abbrechen</span>
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
@@ -399,34 +459,50 @@ export default function FoodPlan({ isAdmin }) {
                   setEditMode(true);
                   setSaveState("idle");
                 }}
-                className="w-9 h-9 flex items-center justify-center rounded-full bg-stone-100 text-stone-500 hover:bg-stone-200"
+                className="w-9 h-9 flex items-center justify-center rounded-full bg-white text-stone-500 hover:bg-stone-200"
               >
                 <Pencil size={16} />
               </button>
             )}
           </>
-        )}
+          )}
+        </div>
       </div>
+      {/* === END HEADER === */}
 
       {/* DAY CARDS (with animation) */}
-      {WEEKDAYS.map((d, i) => (
-        <div
-          key={d.key}
-          className="daycard-anim"
-          style={{ animationDelay: `${i * 60}ms` }}
-        >
-          <DayCard
-            dayKey={d.key}
-            dayLabel={d.label}
-            dayData={mealPlan[d.key] || EMPTY_DAY}
-            isAdmin={isAdmin}
-            editMode={editMode}
-            onChangeValue={updateMealValue}
-            onChangeAllergy={updateAllergyNote}
-            onOpenLov={(mealType) => openLovFor(d.key, mealType)}
-          />
-        </div>
-      ))}
+      {/* Parents: current day first, then Mon-Fri (excluding current) */}
+      {/* Team/Admin: normal Mon-Fri order */}
+      {(isAdmin ? WEEKDAYS : getOrderedWeekdaysForParent()).map((d, i) => {
+        // For parents: first card (current day) full size, others scaled down 10%
+        const shouldScale = !isAdmin && i > 0;
+
+        return (
+          <div
+            key={d.key}
+            className="daycard-anim"
+            style={{ animationDelay: `${i * 60}ms` }}
+          >
+            <div
+              style={shouldScale ? {
+                transform: "scale(0.9)",
+                transformOrigin: "top center",
+              } : undefined}
+            >
+              <DayCard
+                dayKey={d.key}
+                dayLabel={d.label}
+                dayData={mealPlan[d.key] || EMPTY_DAY}
+                isAdmin={isAdmin}
+                editMode={editMode}
+                onChangeValue={updateMealValue}
+                onChangeAllergy={updateAllergyNote}
+                onOpenLov={(mealType) => openLovFor(d.key, mealType)}
+              />
+            </div>
+          </div>
+        );
+      })}
 
       {/* LOV MODAL */}
       <MealSelectionModal
