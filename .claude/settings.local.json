@@ -22,7 +22,9 @@
       "Bash(node scripts/generate-icons.js:*)",
       "Bash(npx cap init:*)",
       "Bash(npx cap:*)",
-      "mcp__supabase__get_publishable_keys"
+      "mcp__supabase__get_publishable_keys",
+      "Bash(git config:*)",
+      "Bash(git remote set-url:*)"
     ]
   }
 }
